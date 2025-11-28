@@ -1,4 +1,5 @@
 import { db } from './db';
+import { dispenseService } from '../services/DispenseService';
 import type { DBSchema } from './db';
 
 export type Product = DBSchema['products'];
@@ -42,30 +43,81 @@ export async function updateStock(
 export async function createOrder(
   items: { productId: number; quantity: number; price: number }[]
 ): Promise<number> {
+  console.log('[inventory.createOrder] 🛒 Creando orden con', items.length, 'producto(s)');
+  
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  console.log('[inventory.createOrder] 💰 Total de orden: $', total.toFixed(2));
 
+  // Validar stock disponible
+  console.log('[inventory.createOrder] ✓ Validando stock disponible...');
   for (const item of items) {
     const product = await db.get('products', item.productId);
     if (!product || product.stock < item.quantity) {
       throw new Error(`Stock insuficiente para el producto ${product?.title}`);
     }
   }
+  console.log('[inventory.createOrder] ✓ Stock validado correctamente');
 
+  // Crear orden en BD
+  console.log('[inventory.createOrder] 📝 Registrando orden en BD...');
   const orderId = await db.add('orders', {
     total,
     status: 'pending',
     createdAt: new Date()
   });
+  console.log(`[inventory.createOrder] ✓ Orden #${orderId} creada en BD`);
 
+  // Registrar items y actualizar stock
+  console.log('[inventory.createOrder] 📦 Procesando items de la orden...');
   for (const item of items) {
+    const product = await db.get('products', item.productId);
+    console.log(`[inventory.createOrder]   • Procesando: ${product?.title} (ID: ${item.productId}, Qty: ${item.quantity})`);
+    
     await db.add('orderItems', {
       orderId,
       productId: item.productId,
       quantity: item.quantity,
       price: item.price
     });
+    console.log(`[inventory.createOrder]     ✓ Item registrado en orden #${orderId}`);
 
     await updateStock(item.productId, item.quantity, 'out', `Orden #${orderId}`);
+    console.log('[inventory.createOrder]     ✓ Stock actualizado');
+  }
+  console.log(`[inventory.createOrder] ✓✓✓ Orden #${orderId} completada exitosamente`);
+
+  // DISPENSAR PRODUCTOS FÍSICAMENTE
+  console.log('[inventory.createOrder] 🎯 Iniciando dispensación física de productos...');
+  try {
+    // Preparar items para dispensación (con la propiedad 'title' que espera DispenseService)
+    const itemsToDispense = await Promise.all(
+      items.map(async (item) => {
+        const product = await db.get('products', item.productId);
+        return {
+          productId: item.productId,
+          title: product?.title || `Producto ${item.productId}`,
+          quantity: item.quantity
+        };
+      })
+    );
+
+    // Dispensar productos
+    const dispenseResults = await dispenseService.dispenseOrder(itemsToDispense);
+    
+    // Mostrar resultados
+    dispenseResults.forEach(result => {
+      if (result.success) {
+        console.log(`[inventory.createOrder]   ✓ ${result.message}`);
+      } else {
+        console.warn(`[inventory.createOrder]   ⚠️ ${result.message}`);
+      }
+    });
+    
+    console.log('[inventory.createOrder] ✓✓✓ Dispensación física completada');
+  } catch (error) {
+    console.error('[inventory.createOrder] ❌ Error en dispensación física:', error);
+    // No lanzar error para que la orden se complete aunque falle la dispensación
+    console.warn('[inventory.createOrder] ⚠️ Orden creada pero dispensación falló');
   }
 
   return orderId;

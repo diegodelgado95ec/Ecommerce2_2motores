@@ -53,3 +53,34 @@ export async function getExpiringBatches(daysBefore: number): Promise<Batch[]> {
     return exp >= now && exp <= soon && b.quantity > 0;
   });
 }
+
+// Consumir lotes usando metodología FIFO (First In First Out)
+// Descuenta de los lotes más antiguos primero
+export async function consumeBatchesFIFO(productId: number, quantityToConsume: number): Promise<void> {
+  const batches = await getBatchesByProduct(productId);
+  
+  // Ordenar por fecha de caducidad (más próximos a vencer primero - FIFO)
+  const sortedBatches = batches
+    .filter(b => b.quantity > 0)
+    .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+
+  let remaining = quantityToConsume;
+
+  for (const batch of sortedBatches) {
+    if (remaining <= 0) break;
+
+    if (batch.quantity <= remaining) {
+      // Consumir el lote completo
+      remaining -= batch.quantity;
+      await updateBatchQuantity(batch.id!, 0);
+    } else {
+      // Consumir solo parte del lote
+      await updateBatchQuantity(batch.id!, batch.quantity - remaining);
+      remaining = 0;
+    }
+  }
+
+  if (remaining > 0) {
+    throw new Error(`No hay suficiente cantidad de lotes para el producto ${productId}`);
+  }
+}

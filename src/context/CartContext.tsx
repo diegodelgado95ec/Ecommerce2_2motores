@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useReducer, useCallback } from 'react';
 import { createOrder } from '../lib/inventory';
-import { useLedNotification } from '../hooks/useLedNotification';
 import type { Product } from '../lib/inventory';
 
 // Types
@@ -93,8 +92,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     isOpen: false,
   });
 
-  const { notifyPurchase } = useLedNotification();
-
   const checkout = useCallback(async () => {
     try {
       const orderItems = state.items.map(item => ({
@@ -103,21 +100,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         price: item.price
       }));
 
-      // Crear la orden
+      // Crear la orden (createOrder YA maneja la dispensación internamente)
       const orderId = await createOrder(orderItems);
-
-      // Notificar al sistema LED
-      console.log('Notificando sistema LED...');
-      const ledSuccess = await notifyPurchase(
-        state.items.map(item => ({
-          id: item.id,
-          quantity: item.quantity
-        }))
-      );
-
-      if (!ledSuccess) {
-        console.log('No se pudo notificar al sistema LED, pero la orden se creó correctamente');
-      }
+      
+      // La dispensación física ya fue manejada por createOrder
+      console.log('Orden creada y productos dispensados correctamente');
 
       dispatch({ type: 'CLEAR_CART' });
       alert(`¡Orden #${orderId} creada con éxito!`);
@@ -129,7 +116,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         alert('Error al procesar la orden');
       }
     }
-  }, [state.items, notifyPurchase]);
+  }, [state.items]);
 
   return (
     <CartContext.Provider value={{ state, dispatch, checkout }}>
