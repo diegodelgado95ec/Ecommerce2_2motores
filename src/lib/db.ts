@@ -1,3 +1,5 @@
+// src/lib/db.ts - ACTUALIZADO
+
 export interface DBSchema {
   products: {
     id: number;
@@ -7,15 +9,43 @@ export interface DBSchema {
     unit: string;
     image: string;
     rating: number;
-    createdAt: Date;
-    updatedAt: Date;
+     createdAt: string; // ✅ CAMBIAR Date a string
+    updatedAt: string; // ✅ CAMBIAR Date a string
   };
+  
+  // ✅ NUEVA TABLA: Usuarios
+  users: {
+    id: number;
+    email: string;
+    passwordHash: string;
+    role: 'admin' | 'customer';
+    name: string;
+    phone?: string;
+    isActive: boolean;
+    loyaltyPoints: number;
+     createdAt: string; // ✅ CAMBIAR Date a string
+    updatedAt: string; // ✅ CAMBIAR Date a string
+  };
+  
+  // ✅ NUEVA TABLA: Sesiones
+  sessions: {
+    id: number;
+    userId: number;
+    token: string;
+     expiresAt: string; // ✅ CAMBIAR Date a string
+    createdAt: string; // ✅ CAMBIAR Date a string
+  };
+  
   orders: {
     id: number;
+    userId?: number; // ✅ Opcional - null para clientes sin cuenta
     total: number;
     status: string;
-    createdAt: Date;
+    paymentMethod: 'cash' | 'card' | 'pending'; // ✅ AGREGADO
+    paymentStatus: 'pending' | 'completed' | 'failed'; // ✅ AGREGADO
+    createdAt: string; // ✅ CAMBIAR Date a string
   };
+  
   orderItems: {
     id: number;
     orderId: number;
@@ -23,15 +53,16 @@ export interface DBSchema {
     quantity: number;
     price: number;
   };
+  
   stockMovements: {
     id: number;
     productId: number;
     quantity: number;
     type: 'in' | 'out';
     note?: string;
-    createdAt: Date;
+     createdAt: string; // ✅ CAMBIAR Date a string
   };
-  // AGREGADO:
+  
   product_batches: {
     id: number;
     productId: number;
@@ -39,12 +70,24 @@ export interface DBSchema {
     quantity: number;
     expiryDate: string;
   };
+  
+  // ✅ NUEVA TABLA: Logs de acceso
+  access_logs: {
+    id: number;
+    userId?: number;
+    action: string;
+    resource: string;
+    ipAddress?: string;
+    userAgent?: string;
+    success: boolean;
+     createdAt: string; // ✅ CAMBIAR Date a string
+  };
 }
 
 class DB {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'storeDB';
-  private readonly version = 1;
+  private readonly version = 2; // ✅ Incrementar versión
 
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -65,17 +108,45 @@ class DB {
           productStore.createIndex('title', 'title', { unique: false });
           productStore.createIndex('stock', 'stock', { unique: false });
         }
+
+        // ✅ NUEVO: Usuarios
+        if (!db.objectStoreNames.contains('users')) {
+          const userStore = db.createObjectStore('users', { keyPath: 'id', autoIncrement: true });
+          userStore.createIndex('email', 'email', { unique: true });
+          userStore.createIndex('role', 'role', { unique: false });
+          userStore.createIndex('isActive', 'isActive', { unique: false });
+        }
+
+        // ✅ NUEVO: Sesiones
+        if (!db.objectStoreNames.contains('sessions')) {
+          const sessionStore = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
+          sessionStore.createIndex('token', 'token', { unique: true });
+          sessionStore.createIndex('userId', 'userId', { unique: false });
+          sessionStore.createIndex('expiresAt', 'expiresAt', { unique: false });
+        }
+
+        // ✅ NUEVO: Logs de acceso
+        if (!db.objectStoreNames.contains('access_logs')) {
+          const logStore = db.createObjectStore('access_logs', { keyPath: 'id', autoIncrement: true });
+          logStore.createIndex('userId', 'userId', { unique: false });
+          logStore.createIndex('action', 'action', { unique: false });
+          logStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // Órdenes - Actualizar schema existente
+        if (!db.objectStoreNames.contains('orders')) {
+          const orderStore = db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
+          orderStore.createIndex('userId', 'userId', { unique: false }); // ✅ NUEVO
+          orderStore.createIndex('status', 'status', { unique: false });
+          orderStore.createIndex('paymentStatus', 'paymentStatus', { unique: false }); // ✅ NUEVO
+          orderStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
         // Lotes de producto
         if (!db.objectStoreNames.contains('product_batches')) {
           const batchStore = db.createObjectStore('product_batches', { keyPath: 'id', autoIncrement: true });
           batchStore.createIndex('productId', 'productId', { unique: false });
           batchStore.createIndex('expiryDate', 'expiryDate', { unique: false });
-        }
-        // Órdenes
-        if (!db.objectStoreNames.contains('orders')) {
-          const orderStore = db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
-          orderStore.createIndex('status', 'status', { unique: false });
-          orderStore.createIndex('createdAt', 'createdAt', { unique: false });
         }
 
         // Items de orden
@@ -96,6 +167,39 @@ class DB {
     });
   }
 
+  // ✅ NUEVO: Método para consultar por índice
+  async getByIndex<T extends keyof DBSchema>(
+    storeName: T,
+    indexName: string,
+    value: any
+  ): Promise<DBSchema[T] | undefined> {
+    return this.transaction(storeName, 'readonly', async (store) => {
+      return new Promise((resolve, reject) => {
+        const index = store.index(indexName);
+        const request = index.get(value);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  // ✅ NUEVO: Método para consultar todos por índice
+  async getAllByIndex<T extends keyof DBSchema>(
+    storeName: T,
+    indexName: string,
+    value: any
+  ): Promise<DBSchema[T][]> {
+    return this.transaction(storeName, 'readonly', async (store) => {
+      return new Promise((resolve, reject) => {
+        const index = store.index(indexName);
+        const request = index.getAll(value);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  // Resto de métodos existentes...
   async transaction<T>(
     storeName: keyof DBSchema,
     mode: IDBTransactionMode,
