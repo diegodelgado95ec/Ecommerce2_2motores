@@ -1,54 +1,87 @@
+// src/services/DispenseService.ts - VERSIÓN COMPLETA CORREGIDA
+
+import { db } from '../lib/db';
 import { ledService } from './LedService';
 
-/**
- * DispenseService
- * ================
- * Servicio especializado para controlar la dispensación física de productos
- * 
- * CARACTERÍSTICAS:
- * - Solo dispensa productos ID 1 (Arroz) e ID 2 (Fideos)
- * - Maneja errores sin bloquear el flujo de compra
- * - Proporciona feedback visual al usuario
- * - Registra todas las dispensaciones para auditoría
- */
-
-interface DispenseResult {
+export interface DispenseResult {
   success: boolean;
   productId: number;
   quantity: number;
   message: string;
-  error?: string;
 }
 
-// ✓ IDs de productos que tienen dispensador físico
-const DISPENSABLE_PRODUCT_IDS = [1, 2];
-
 class DispenseService {
-  private dispensationHistory: DispenseResult[] = [];
+  // ✅ WHITELIST de productos dispensables (IDs válidos)
+  private readonly DISPENSABLE_PRODUCTS = new Set([1, 2, 3, 4, 5, 6]);
+  
+  // ✅ LÍMITES DE SEGURIDAD
+  private readonly MIN_QUANTITY = 1;
 
   /**
-   * Verifica si un producto puede ser dispensado físicamente
-   * 
-   * @param productId - ID del producto a verificar
-   * @returns true si el producto tiene dispensador físico
+   * ✅ Valida si un producto tiene dispensador físico
+   * IMPORTANTE: Debe estar ANTES de validateInput
    */
-  isDispensable(productId: number): boolean {
-    return DISPENSABLE_PRODUCT_IDS.includes(productId);
+  private isDispensable(productId: number): boolean {
+    return this.DISPENSABLE_PRODUCTS.has(productId);
   }
 
   /**
-   * Intenta dispensar un producto
-   * 
-   * @param productId - ID del producto a dispensar
-   * @param quantity - Cantidad a dispensar
-   * @param productTitle - Título del producto (para logs)
-   * @returns Promesa con resultado de la dispensación
+   * ✅ Valida parámetros de entrada
+   */
+  private async validateInput(productId: number, quantity: number): Promise<void> {
+    // Validar productId
+    if (!Number.isInteger(productId) || productId <= 0) {
+      throw new Error(`ID de producto inválido: ${productId}`);
+    }
+
+    if (!this.isDispensable(productId)) {
+      throw new Error(`Producto ${productId} no tiene dispensador físico asignado`);
+    }
+
+    // Validar quantity
+    if (!Number.isInteger(quantity)) {
+      throw new Error(`Cantidad debe ser un número entero: ${quantity}`);
+    }
+
+    if (quantity < this.MIN_QUANTITY) {
+      throw new Error(`Cantidad mínima es ${this.MIN_QUANTITY}, recibido: ${quantity}`);
+    }
+
+    // ✅ Validar contra stock real
+    const product = await db.get('products', productId);
+    
+    if (!product) {
+      throw new Error(`Producto ${productId} no encontrado en base de datos`);
+    }
+
+    if (quantity > product.stock) {
+      throw new Error(
+        `Stock insuficiente para producto "${product.title}". Disponible: ${product.stock}, solicitado: ${quantity}`
+      );
+    }
+  }
+
+  /**
+   * Dispensa un producto específico
    */
   async dispenseProduct(
     productId: number,
     quantity: number,
     productTitle?: string
   ): Promise<DispenseResult> {
+    // ✅ VALIDACIÓN ASYNC
+    try {
+      await this.validateInput(productId, quantity);
+    } catch (error) {
+      console.error('[DispenseService] ❌ Validación fallida:', error);
+      return {
+        success: false,
+        productId,
+        quantity,
+        message: error instanceof Error ? error.message : 'Error de validación'
+      };
+    }
+
     const result: DispenseResult = {
       success: false,
       productId,
@@ -56,52 +89,40 @@ class DispenseService {
       message: '',
     };
 
-    // ✓ PASO 1: Validar que el producto pueda dispensarse
-    if (!this.isDispensable(productId)) {
-      result.message = `⚠️ Producto ${productId} (${productTitle || 'desconocido'}) no tiene dispensador físico - Se procesará como compra normal`;
-      console.log(`[DispenseService] ${result.message}`);
-      this.dispensationHistory.push(result);
-      return result;
-    }
-
-    console.log(`[DispenseService] 🔄 Iniciando dispensación: ${productTitle} (ID: ${productId}, Cantidad: ${quantity})`);
+    console.log(
+      `[DispenseService] 🔄 Iniciando dispensación: ${productTitle || 'Producto'} (ID: ${productId}, Cantidad: ${quantity})`
+    );
 
     try {
-      // ✓ PASO 2: Enviar señal al LED Service
       const sent = await ledService.sendProductSignal(productId, quantity);
 
       if (sent) {
         result.success = true;
-        result.message = `✓ ${productTitle} fue dispensado correctamente`;
+        result.message = `✓ ${productTitle || 'Producto'} fue dispensado correctamente`;
         console.log(`[DispenseService] ✓ Dispensación exitosa: ${result.message}`);
       } else {
         result.success = false;
-        result.message = `⚠️ No se pudo contactar el dispensador de ${productTitle} - Compra procesada sin dispensación`;
-        result.error = 'ESP32 no respondió';
-        console.warn(`[DispenseService] ${result.message}`);
+        result.message = `✗ No se pudo dispensar ${productTitle || 'el producto'}`;
+        console.warn(`[DispenseService] ⚠️ Dispensación falló: ${result.message}`);
       }
     } catch (error) {
-      // ✓ PASO 3: Manejar errores sin bloquear la compra
       result.success = false;
-      result.error = error instanceof Error ? error.message : 'Error desconocido';
-      result.message = `⚠️ Error dispensando ${productTitle}: ${result.error} - Compra procesada sin dispensación`;
-      console.error(`[DispenseService] ✗ ${result.message}`);
+      result.message = `Error al dispensar: ${error instanceof Error ? error.message : 'Error desconocido'}`;
+      console.error(`[DispenseService] ❌ Error en dispensación:`, error);
     }
-
-    // ✓ PASO 4: Registrar en historial
-    this.dispensationHistory.push(result);
 
     return result;
   }
 
   /**
-   * Procesa la dispensación de múltiples productos de una orden
-   * 
-   * @param items - Array de items de la orden con productId, quantity, y title
-   * @returns Promesa con array de resultados
+   * Dispensa múltiples productos de una orden
    */
-  async dispenseOrder(
-    items: Array<{ productId: number; quantity: number; title?: string }>
+  async dispenseMultiple(
+    items: Array<{
+      productId: number;
+      quantity: number;
+      title?: string;
+    }>
   ): Promise<DispenseResult[]> {
     console.log(`[DispenseService] 📦 Procesando dispensación para orden con ${items.length} producto(s)`);
 
@@ -109,70 +130,28 @@ class DispenseService {
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      console.log(`[DispenseService] Dispensando producto ${i + 1}/${items.length}: ${item.title || item.productId}`);
 
-      // ✓ Solo procesar productos dispensables
-      if (this.isDispensable(item.productId)) {
-        console.log(`[DispenseService] Dispensando producto ${i + 1}/${items.length}: ${item.title}`);
+      const result = await this.dispenseProduct(
+        item.productId,
+        item.quantity,
+        item.title
+      );
 
-        const result = await this.dispenseProduct(item.productId, item.quantity, item.title);
-        results.push(result);
+      results.push(result);
 
-        // Esperar entre dispensaciones para evitar conflictos
-        if (i < items.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      } else {
-        // ✓ Registrar productos no dispensables
-        const result: DispenseResult = {
-          success: true, // No es un error, es esperado
-          productId: item.productId,
-          quantity: item.quantity,
-          message: `Producto ${item.title} no requiere dispensación física`,
-        };
-        results.push(result);
+      // Pequeña pausa entre dispensaciones para no saturar el ESP32
+      if (i < items.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
 
-    console.log(`[DispenseService] ✓ Dispensación completada para orden`);
+    const allSuccess = results.every((r) => r.success);
+    console.log(
+      `[DispenseService] ${allSuccess ? '✓' : '⚠️'} Dispensación completada para orden`
+    );
+
     return results;
-  }
-
-  /**
-   * Obtiene el historial de dispensaciones
-   * 
-   * @returns Array con todos los resultados de dispensación
-   */
-  getHistory(): DispenseResult[] {
-    return [...this.dispensationHistory];
-  }
-
-  /**
-   * Limpia el historial de dispensaciones
-   */
-  clearHistory(): void {
-    console.log(`[DispenseService] Limpiando historial (${this.dispensationHistory.length} registros)`);
-    this.dispensationHistory = [];
-  }
-
-  /**
-   * Obtiene estadísticas de dispensación
-   * 
-   * @returns Objeto con estadísticas
-   */
-  getStats() {
-    const successful = this.dispensationHistory.filter(r => r.success).length;
-    const failed = this.dispensationHistory.filter(r => !r.success && this.isDispensable(r.productId)).length;
-    const skipped = this.dispensationHistory.filter(r => !this.isDispensable(r.productId)).length;
-
-    return {
-      total: this.dispensationHistory.length,
-      successful,
-      failed,
-      skipped,
-      successRate: this.dispensationHistory.length > 0 
-        ? Math.round((successful / this.dispensationHistory.length) * 100) 
-        : 0,
-    };
   }
 }
 

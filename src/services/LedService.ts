@@ -1,85 +1,67 @@
+// src/services/LedService.ts - ACTUALIZAR
+
+import { HardwareConfigManager } from '../config/hardware.config';
+
 class LedService {
-  private baseUrl: string = import.meta.env.VITE_ESP32_IP || 'http://localhost:8080';
-  private isConnected: boolean = false;
-
+  // ❌ ELIMINAR: private readonly ESP32_IP = 'http://192.168.0.105';
+  
   constructor() {
-    console.log('[LedService] Inicializando con IP:', this.baseUrl);
-  }
-
-  async connect(): Promise<boolean> {
-    try {
-      console.log('[LedService] Verificando conexión ESP32 en:', this.baseUrl);
-      
-      // Intenta conectar con timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos timeout
-
-      const response = await fetch(`${this.baseUrl}/status`, {
-        method: 'GET',
-        mode: 'cors',
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        const data = await response.json();
-        this.isConnected = data.status === 'online' || response.status === 200;
-        console.log('[LedService] ✓ ESP32 conectado:', data);
-        return this.isConnected;
-      }
-      
-      console.warn('[LedService] Respuesta no OK:', response.status);
-      return false;
-    } catch (error) {
-      console.error('[LedService] ✗ Error conectando:', error);
-      this.isConnected = false;
-      return false;
-    }
+    const url = HardwareConfigManager.getESP32URL();
+    console.log('[LedService] Inicializando con URL:', url);
   }
 
   async sendProductSignal(productId: number, quantity: number): Promise<boolean> {
-    // ✓ CAMBIO: No requerir conexión previa para /dispense
-    // La dispensación debe ocurrir incluso si se detectó offline antes
-    console.log(`[LedService] Intentando dispensar: producto ${productId}, cantidad ${quantity}`);
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      // ✓ CAMBIO: Endpoint modificado de /blink a /dispense
-      const response = await fetch(`${this.baseUrl}/dispense`, {
-        method: 'POST',
-        mode: 'cors',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ productId, quantity }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        console.warn(`[LedService] ⚠️ Error HTTP: ${response.status} - La compra será procesada igual`);
-        // ✓ CAMBIO: No bloquear la compra si ESP32 falla
-        return false;
-      }
-
-      const result = await response.json();
-      console.log('[LedService] ✓ Dispensación enviada al ESP32:', result);
-      return true;
-    } catch (error) {
-      // ✓ CAMBIO: Error no bloqueante - registra pero permite continuar
-      console.warn('[LedService] ⚠️ Error enviando comando de dispensación:', error);
-      console.warn('[LedService] ℹ️ La compra se procesará normalmente sin dispensación física');
-      return false;
+    const config = HardwareConfigManager.getConfig();
+    
+    // Verificar si está habilitado
+    if (!config.esp32.enabled) {
+      console.log('[LedService] ESP32 deshabilitado - Simulando dispensación');
+      return true; // Simular éxito en modo desarrollo
     }
+
+    const url = HardwareConfigManager.getESP32URL();
+    console.log('[LedService] Intentando dispensar: producto', productId, 'cantidad', quantity);
+
+    // Intentar con reintentos
+    for (let attempt = 1; attempt <= config.esp32.retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), config.esp32.timeout);
+
+        const response = await fetch(`${url}/dispense`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ product: productId, quantity }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          console.log(`[LedService] ✅ Dispensación exitosa (intento ${attempt}/${config.esp32.retries})`);
+          return true;
+        } else {
+          console.warn(`[LedService] ⚠️ Error HTTP ${response.status} (intento ${attempt}/${config.esp32.retries})`);
+        }
+      } catch (error) {
+        console.warn(`[LedService] ⚠️ Error en intento ${attempt}/${config.esp32.retries}:`, error);
+        
+        if (attempt === config.esp32.retries) {
+          console.error('[LedService] ❌ Todos los intentos fallaron');
+          return false;
+        }
+        
+        // Esperar antes del siguiente intento
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    return false;
   }
 
-  isSupported(): boolean {
-    return true; // WiFi siempre disponible
-  }
+  // Resto del código...
 }
 
 export const ledService = new LedService();
