@@ -1,21 +1,19 @@
-import React, { useState } from 'react';
-import { Settings } from 'lucide-react';
-import { AdminLogin } from './AdminLogin';
+// src/components/AdminButton.tsx - ACTUALIZAR O CREAR
+
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Shield } from 'lucide-react';
 
 export function AdminButton() {
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const navigate = useNavigate();
 
   return (
-    <>
-      <button
-        onClick={() => setIsModalOpen(true)}
-        className="fixed top-4 left-4 z-50 flex items-center space-x-2 bg-gray-800 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors"
-      >
-        <Settings className="w-5 h-5" />
-        <span>Administración</span>
-      </button>
-
-      {isModalOpen && <AdminLogin onClose={() => setIsModalOpen(false)} />}
-    </>
+    <button
+      onClick={() => navigate('/login')}
+      className="fixed bottom-4 left-4 bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-full shadow-lg transition-all hover:scale-110 z-50"
+      title="Acceso Administrador"
+    >
+      <Shield className="h-6 w-6" />
+    </button>
   );
 }

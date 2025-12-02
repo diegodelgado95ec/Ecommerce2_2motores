@@ -1,20 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Package, DollarSign, ShoppingCart, Usb, Mail } from 'lucide-react';
+import { Users, Package, DollarSign, ShoppingCart, Usb, Mail,Settings } from 'lucide-react';
 import { UserManagement } from './UserManagement';
 import { InventoryTable } from './InventoryTable';
 import { InventoryManager } from './InventoryManager';
 import { ProductManagement } from './ProductManagement';
 import { SalesHistory } from './SalesHistory';
-import { getAllProducts, db } from '../../lib/inventory';
+import { getAllProducts } from '../../lib/inventory';
 import { ledService } from "../../services/LedService";
 import type { Product } from '../../lib/inventory';
-import BatchManager from "./BatchManager";
+import ExpiringBatchesAlert from "./ExpiringBatchesAlert";
+import BatchSearcher from "./BatchSearcher";
 import EmailTasks from "./EmailTasks";
+import { HardwareSettings } from './HardwareSettings';
+
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<
-    'users' | 'inventory' | 'stock' | 'products' | 'sales' | 'batches'
-  >('inventory');
+  'users' | 'inventory' | 'stock' | 'products' | 'sales' | 'batches' | 'settings'
+>('inventory');
 
   const [isSerialConnected, setIsSerialConnected] = useState(false);
   const [serialError, setSerialError] = useState<string | null>(null);
@@ -285,6 +288,17 @@ export function Dashboard() {
                 <Mail className="w-5 h-5 mr-2" />
                 Lotes y Reportes
               </button>
+                  <button
+                    onClick={() => setActiveTab('settings')}
+                    className={`${
+                      activeTab === 'settings'
+                        ? 'border-yellow-500 text-yellow-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                    >
+                    <Settings className="w-5 h-5 mr-2" />
+                    Configuración
+                  </button>
             </nav>
           </div>
         </div>
@@ -297,12 +311,22 @@ export function Dashboard() {
           {activeTab === 'sales' && <SalesHistory />}
           {activeTab === 'users' && <UserManagement />}
 
-          {activeTab === 'batches' && selectedProduct ? (
-            <div>
-              <BatchManager productId={selectedProduct.id} productName={selectedProduct.title} />
+          {activeTab === 'batches' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Búsqueda de Lotes por Producto</h3>
+                <BatchSearcher />
+              </div>
+              <hr className="my-6" />
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Lotes Próximos a Caducarse</h3>
+                <ExpiringBatchesAlert />
+              </div>
+              <hr className="my-6" />
               <EmailTasks />
             </div>
-          ) : null}
+          )}
+          {activeTab === 'settings' && <HardwareSettings />}
         </div>
       </div>
     </div>
