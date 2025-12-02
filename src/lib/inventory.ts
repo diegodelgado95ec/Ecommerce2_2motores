@@ -107,48 +107,46 @@ export async function createOrder(
     console.log(`[inventory.createOrder] 🎁 ${pointsEarned} puntos de fidelidad agregados`);
   }
 
-  // ✅ OPTIMIZACIÓN 3: Registrar items y actualizar stock en UNA SOLA TRANSACCIÓN
-  console.log('[inventory.createOrder] 📦 Procesando items de la orden (transacción atómica)...');
+  // ✅ OPTIMIZACIÓN 3: Registrar items y actualizar stock (batch operations)
+  console.log('[inventory.createOrder] 📦 Procesando items de la orden...');
   
   try {
-    // Usar transacción para garantizar atomicidad
-    await db.transaction(['orderItems', 'products', 'stockMovements'], 'readwrite', async () => {
-      for (const { item, product } of itemsWithProducts) {
-        console.log(`[inventory.createOrder]   • Procesando: ${product.title} (ID: ${item.productId}, Qty: ${item.quantity})`);
-        
-        // Agregar orderItem
-        await db.add('orderItems', {
-          orderId,
-          productId: item.productId,
-          quantity: item.quantity,
-          price: item.price
-        } as any);
-        console.log(`[inventory.createOrder]     ✓ Item registrado en orden #${orderId}`);
+    // Procesar cada item secuencialmente pero de forma optimizada
+    for (const { item, product } of itemsWithProducts) {
+      console.log(`[inventory.createOrder]   • Procesando: ${product.title} (ID: ${item.productId}, Qty: ${item.quantity})`);
+      
+      // Agregar orderItem
+      await db.add('orderItems', {
+        orderId,
+        productId: item.productId,
+        quantity: item.quantity,
+        price: item.price
+      } as any);
+      console.log(`[inventory.createOrder]     ✓ Item registrado en orden #${orderId}`);
 
-        // Actualizar stock del producto
-        const newStock = product.stock - item.quantity;
-        await db.put('products', {
-          ...product,
-          stock: newStock,
-          updatedAt: new Date().toISOString()
-        } as any);
+      // Actualizar stock del producto
+      const newStock = product.stock - item.quantity;
+      await db.put('products', {
+        ...product,
+        stock: newStock,
+        updatedAt: new Date().toISOString()
+      } as any);
 
-        // Registrar movimiento de stock
-        await db.add('stockMovements', {
-          productId: item.productId,
-          quantity: item.quantity,
-          type: 'out' as const,
-          note: `Orden #${orderId}`,
-          createdAt: new Date().toISOString()
-        } as any);
-        
-        console.log(`[inventory.createOrder]     ✓ Stock actualizado: ${product.stock} → ${newStock}`);
-      }
-    });
+      // Registrar movimiento de stock
+      await db.add('stockMovements', {
+        productId: item.productId,
+        quantity: item.quantity,
+        type: 'out' as const,
+        note: `Orden #${orderId}`,
+        createdAt: new Date().toISOString()
+      } as any);
+      
+      console.log(`[inventory.createOrder]     ✓ Stock actualizado: ${product.stock} → ${newStock}`);
+    }
     
     console.log(`[inventory.createOrder] ✓✓✓ Orden #${orderId} completada exitosamente`);
   } catch (error) {
-    console.error('[inventory.createOrder] ❌ Error en transacción:', error);
+    console.error('[inventory.createOrder] ❌ Error procesando items:', error);
     
     // Marcar orden como fallida
     const order = await db.get('orders', orderId);
