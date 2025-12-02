@@ -1,4 +1,4 @@
-// src/main.tsx - VERSIÓN COMPLETA CON HERRAMIENTAS DE DEBUG
+// src/main.tsx - VERSIÓN COMPLETA CORREGIDA
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -7,6 +7,7 @@ import './index.css';
 import { initializeDB } from './lib/inventory';
 import { authService } from './lib/auth';
 import { db } from './lib/db';
+import { dispenseService } from './services/DispenseService'; // ✅ Ya está importado
 
 /**
  * Inicialización de la aplicación
@@ -47,10 +48,11 @@ async function initializeApp() {
   }
 }
 
-// ✅ NUEVO: Exponer herramientas para pruebas (solo en desarrollo)
+// ✅ Exponer herramientas para pruebas (solo en desarrollo)
 if (import.meta.env.DEV) {
   (window as any).db = db;
   (window as any).authService = authService;
+  (window as any).dispenseService = dispenseService; // ✅ AGREGAR ESTA LÍNEA
   
   // Helper functions para pruebas rápidas
   (window as any).testAuth = {
@@ -78,12 +80,21 @@ if (import.meta.env.DEV) {
     currentUser: () => {
       const user = authService.getCurrentUser();
       console.log(user ? `✅ Usuario: ${user.name} (${user.role})` : '❌ Sin sesión');
+    },
+    
+    // ✅ AGREGAR: Pruebas de dispensación
+    testDispense: async (productId: number, quantity: number) => {
+      console.log(`🧪 Probando dispensación: Producto ${productId}, Cantidad ${quantity}`);
+      const result = await dispenseService.dispenseProduct(productId, quantity, `Producto ${productId}`);
+      console.log('Resultado:', result);
+      return result;
     }
   };
   
   console.log('🔧 [DEV] Herramientas de desarrollo disponibles:');
   console.log('   - db.getAll("users")');
   console.log('   - authService.login(email, password)');
+  console.log('   - dispenseService.dispenseProduct(id, qty)'); // ✅ AGREGAR
   console.log('   - testAuth.users()');
   console.log('   - testAuth.sessions()');
   console.log('   - testAuth.logs()');
@@ -91,6 +102,7 @@ if (import.meta.env.DEV) {
   console.log('   - testAuth.loginAdmin()');
   console.log('   - testAuth.logout()');
   console.log('   - testAuth.currentUser()');
+  console.log('   - testAuth.testDispense(productId, quantity)'); // ✅ AGREGAR
 }
 
 // Inicializar y renderizar
