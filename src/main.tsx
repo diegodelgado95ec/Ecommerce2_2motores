@@ -1,4 +1,4 @@
-// src/main.tsx - VERSIÓN CORREGIDA CON getStats
+// src/main.tsx - CON LOGGER Y SERVICIOS EXPUESTOS
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -9,31 +9,34 @@ import { authService } from './lib/auth';
 import { db } from './lib/db';
 import { dispenseService } from './services/DispenseService';
 import { loginLimiter, registerLimiter, orderLimiter, getAllRateLimitStats, resetAllLimiters } from './lib/securityMiddleware';
+import logger from './lib/logger'; // ✅ IMPORTAR LOGGER
+import { stockService } from './services/StockService'; // ✅ IMPORTAR STOCK SERVICE
+import { loyaltyService } from './services/LoyaltyService'; // ✅ IMPORTAR LOYALTY SERVICE
 
 /**
  * Inicialización de la aplicación
  */
 async function initializeApp() {
   try {
-    console.log('[App] 🚀 Iniciando aplicación...');
+    logger.log('[App] 🚀 Iniciando aplicación...');
     
-    console.log('[App] 📊 Inicializando base de datos...');
+    logger.log('[App] 📊 Inicializando base de datos...');
     await initializeDB();
-    console.log('[App] ✓ Base de datos inicializada correctamente');
+    logger.log('[App] ✓ Base de datos inicializada correctamente');
     
-    console.log('[App] 👤 Verificando usuario administrador...');
+    logger.log('[App] 👤 Verificando usuario administrador...');
     await authService.createDefaultAdmin();
-    console.log('[App] ✓ Usuario administrador verificado');
+    logger.log('[App] ✓ Usuario administrador verificado');
     
-    console.log('[App] 🔐 Verificando sesión activa...');
+    logger.log('[App] 🔐 Verificando sesión activa...');
     const user = await authService.checkSession();
     if (user) {
-      console.log(`[App] ✓ Sesión activa: ${user.name} (${user.role})`);
+      logger.log(`[App] ✓ Sesión activa: ${user.name} (${user.role})`);
     } else {
-      console.log('[App] ℹ️ No hay sesión activa (modo invitado)');
+      logger.log('[App] ℹ️ No hay sesión activa (modo invitado)');
     }
     
-    console.log('[App] ✅ Aplicación inicializada correctamente\n');
+    logger.log('[App] ✅ Aplicación inicializada correctamente\n');
     console.log('═══════════════════════════════════════════════════');
     console.log('📦 SISTEMA DE VENDING MACHINE - LISTO PARA USAR');
     console.log('═══════════════════════════════════════════════════');
@@ -62,6 +65,13 @@ if (import.meta.env.DEV) {
   (window as any).getAllRateLimitStats = getAllRateLimitStats;
   (window as any).resetAllLimiters = resetAllLimiters;
   
+  // ✅ NUEVO: Exponer logger
+  (window as any).logger = logger;
+  
+  // ✅ NUEVO: Exponer servicios SRP
+  (window as any).stockService = stockService;
+  (window as any).loyaltyService = loyaltyService;
+  
   // Helper functions para pruebas rápidas
   (window as any).testAuth = {
     // Ver usuarios
@@ -78,11 +88,11 @@ if (import.meta.env.DEV) {
     
     // Login rápido como admin
     loginAdmin: () => authService.login('admin@store.local', 'Admin123!')
-      .then(r => console.log('✅ Login exitoso:', r.user.name)),
+      .then(r => logger.log('✅ Login exitoso:', r.user.name)),
     
     // Logout rápido
     logout: () => authService.logout()
-      .then(() => console.log('✅ Sesión cerrada')),
+      .then(() => logger.log('✅ Sesión cerrada')),
     
     // Ver usuario actual
     currentUser: () => {
@@ -92,13 +102,13 @@ if (import.meta.env.DEV) {
     
     // Pruebas de dispensación
     testDispense: async (productId: number, quantity: number) => {
-      console.log(`🧪 Probando dispensación: Producto ${productId}, Cantidad ${quantity}`);
+      logger.log(`🧪 Probando dispensación: Producto ${productId}, Cantidad ${quantity}`);
       const result = await dispenseService.dispenseProduct(productId, quantity, `Producto ${productId}`);
       console.log('Resultado:', result);
       return result;
     },
     
-    // ✅ CORREGIDO: Ver estado de rate limiting
+    // Ver estado de rate limiting
     rateLimitStatus: (email: string) => {
       console.log('\n🔒 ESTADO DE RATE LIMITING');
       console.log('──────────────────────────────');
@@ -128,14 +138,14 @@ if (import.meta.env.DEV) {
       return { login: loginStats, register: registerStats };
     },
     
-    // ✅ Desbloquear usuario manualmente
+    // Desbloquear usuario manualmente
     unblock: (email: string) => {
       loginLimiter.unlock(email);
       registerLimiter.unlock(email);
       console.log(`✅ Usuario ${email} desbloqueado manualmente`);
     },
     
-    // ✅ Ver historial de dispensaciones
+    // Ver historial de dispensaciones
     dispenseHistory: () => {
       const history = dispenseService.getHistory();
       console.log('\n📦 HISTORIAL DE DISPENSACIONES');
@@ -145,7 +155,7 @@ if (import.meta.env.DEV) {
       return history;
     },
     
-    // ✅ Ver estadísticas de dispensaciones
+    // Ver estadísticas de dispensaciones
     dispenseStats: () => {
       const stats = dispenseService.getStats();
       console.log('\n📊 ESTADÍSTICAS DE DISPENSACIONES');
@@ -186,6 +196,18 @@ if (import.meta.env.DEV) {
   console.log('   - testAuth.testDispense(productId, quantity)');
   console.log('   - testAuth.dispenseHistory()');
   console.log('   - testAuth.dispenseStats()');
+  
+  console.log('\n📝 LOGGER (NUEVO):');
+  console.log('   - logger.log("mensaje")         // Solo en DEV');
+  console.log('   - logger.error("error")         // Siempre visible');
+  console.log('   - logger.warn("warning")        // Siempre visible');
+  console.log('   - logger.isDev()                // Verificar modo');
+  
+  console.log('\n🧱 SERVICIOS SRP (NUEVO):');
+  console.log('   - stockService.validateStockAvailability(items)');
+  console.log('   - stockService.updateProductStock(product, qty, type, note)');
+  console.log('   - loyaltyService.calculatePointsEarned(total)');
+  console.log('   - loyaltyService.addPointsToUser(user, total)');
   console.log('');
 }
 
