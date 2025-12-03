@@ -1,4 +1,4 @@
-// src/main.tsx - VERSIÓN COMPLETA CORREGIDA
+// src/main.tsx - VERSIÓN CON RATE LIMITERS EXPUESTOS
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -7,7 +7,8 @@ import './index.css';
 import { initializeDB } from './lib/inventory';
 import { authService } from './lib/auth';
 import { db } from './lib/db';
-import { dispenseService } from './services/DispenseService'; // ✅ Ya está importado
+import { dispenseService } from './services/DispenseService';
+import { loginLimiter, registerLimiter, orderLimiter } from './lib/securityMiddleware'; // ✅ IMPORTAR LIMITERS
 
 /**
  * Inicialización de la aplicación
@@ -52,7 +53,12 @@ async function initializeApp() {
 if (import.meta.env.DEV) {
   (window as any).db = db;
   (window as any).authService = authService;
-  (window as any).dispenseService = dispenseService; // ✅ AGREGAR ESTA LÍNEA
+  (window as any).dispenseService = dispenseService;
+  
+  // ✅ NUEVO: Exponer rate limiters
+  (window as any).loginLimiter = loginLimiter;
+  (window as any).registerLimiter = registerLimiter;
+  (window as any).orderLimiter = orderLimiter;
   
   // Helper functions para pruebas rápidas
   (window as any).testAuth = {
@@ -82,27 +88,102 @@ if (import.meta.env.DEV) {
       console.log(user ? `✅ Usuario: ${user.name} (${user.role})` : '❌ Sin sesión');
     },
     
-    // ✅ AGREGAR: Pruebas de dispensación
+    // Pruebas de dispensación
     testDispense: async (productId: number, quantity: number) => {
       console.log(`🧪 Probando dispensación: Producto ${productId}, Cantidad ${quantity}`);
       const result = await dispenseService.dispenseProduct(productId, quantity, `Producto ${productId}`);
       console.log('Resultado:', result);
       return result;
+    },
+    
+    // ✅ NUEVO: Ver estado de rate limiting
+    rateLimitStatus: (email: string) => {
+      const loginKey = `login:${email}`;
+      const registerKey = `register:${email}`;
+      
+      console.log('\n🔒 ESTADO DE RATE LIMITING');
+      console.log('──────────────────────────────');
+      
+      const loginStatus = loginLimiter.getRemainingAttempts(loginKey);
+      console.log(`Login (${email}):`);
+      console.log(`  Intentos restantes: ${loginStatus.remaining}/${loginLimiter['maxRequests']}`);
+      console.log(`  Bloqueado: ${loginStatus.blocked ? '🔴 SÍ' : '🟢 NO'}`);
+      if (loginStatus.blocked && loginStatus.resetIn) {
+        console.log(`  Se desbloquea en: ${Math.ceil(loginStatus.resetIn / 1000)}s`);
+      }
+      
+      const registerStatus = registerLimiter.getRemainingAttempts(registerKey);
+      console.log(`\nRegistro (${email}):`);
+      console.log(`  Intentos restantes: ${registerStatus.remaining}/${registerLimiter['maxRequests']}`);
+      console.log(`  Bloqueado: ${registerStatus.blocked ? '🔴 SÍ' : '🟢 NO'}`);
+      if (registerStatus.blocked && registerStatus.resetIn) {
+        console.log(`  Se desbloquea en: ${Math.ceil(registerStatus.resetIn / 1000)}s`);
+      }
+      
+      console.log('──────────────────────────────\n');
+    },
+    
+    // ✅ NUEVO: Desbloquear usuario manualmente
+    unblock: (email: string) => {
+      const loginKey = `login:${email}`;
+      const registerKey = `register:${email}`;
+      
+      loginLimiter.reset(loginKey);
+      registerLimiter.reset(registerKey);
+      
+      console.log(`✅ Usuario ${email} desbloqueado manualmente`);
+    },
+    
+    // ✅ NUEVO: Ver historial de dispensaciones
+    dispenseHistory: () => {
+      const history = dispenseService.getHistory();
+      console.log('\n📦 HISTORIAL DE DISPENSACIONES');
+      console.log('──────────────────────────────');
+      console.table(history);
+      console.log('──────────────────────────────\n');
+      return history;
+    },
+    
+    // ✅ NUEVO: Ver estadísticas de dispensaciones
+    dispenseStats: () => {
+      const stats = dispenseService.getStats();
+      console.log('\n📊 ESTADÍSTICAS DE DISPENSACIONES');
+      console.log('──────────────────────────────────');
+      console.log(`Total de dispensaciones: ${stats.total}`);
+      console.log(`Exitosas: ${stats.successful} (🟢)`);
+      console.log(`Fallidas: ${stats.failed} (🔴)`);
+      console.log(`Omitidas: ${stats.skipped} (⚪)`);
+      console.log(`Tasa de éxito: ${stats.successRate}%`);
+      console.log('──────────────────────────────────\n');
+      return stats;
     }
   };
   
   console.log('🔧 [DEV] Herramientas de desarrollo disponibles:');
+  console.log('\n📂 BASE DE DATOS:');
   console.log('   - db.getAll("users")');
-  console.log('   - authService.login(email, password)');
-  console.log('   - dispenseService.dispenseProduct(id, qty)'); // ✅ AGREGAR
   console.log('   - testAuth.users()');
   console.log('   - testAuth.sessions()');
-  console.log('   - testAuth.logs()');
   console.log('   - testAuth.orders()');
+  console.log('   - testAuth.logs()');
+  
+  console.log('\n🔐 AUTENTICACIÓN:');
+  console.log('   - authService.login(email, password)');
   console.log('   - testAuth.loginAdmin()');
   console.log('   - testAuth.logout()');
   console.log('   - testAuth.currentUser()');
-  console.log('   - testAuth.testDispense(productId, quantity)'); // ✅ AGREGAR
+  
+  console.log('\n🛡️ RATE LIMITING:');
+  console.log('   - loginLimiter.getRemainingAttempts("login:email@example.com")');
+  console.log('   - testAuth.rateLimitStatus("email@example.com")');
+  console.log('   - testAuth.unblock("email@example.com")');
+  
+  console.log('\n📦 DISPENSACIÓN:');
+  console.log('   - dispenseService.dispenseProduct(id, qty)');
+  console.log('   - testAuth.testDispense(productId, quantity)');
+  console.log('   - testAuth.dispenseHistory()');
+  console.log('   - testAuth.dispenseStats()');
+  console.log('');
 }
 
 // Inicializar y renderizar
