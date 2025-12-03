@@ -1,4 +1,6 @@
-// src/lib/rateLimiter.ts - Sistema de Rate Limiting
+// src/lib/rateLimiter.ts - Sistema de Rate Limiting con Logger
+
+import logger from './logger';
 
 export interface RateLimiterConfig {
   windowMs: number;           // Ventana de tiempo en ms (ej: 60000 = 1 min)
@@ -34,13 +36,11 @@ export class RateLimiter {
 
   /**
    * Verifica si una key puede hacer un request
-   * @returns {allowed: boolean, remainingMs?: number}
    */
   checkLimit(key: string): { allowed: boolean; remainingMs?: number; message?: string } {
-    const fullKey = `${this.config.keyPrefix}${key}`;
+    const fullKey = `${this.config.keyPrefix}:${key}`; // ✅ FIX: Agregar ':'
     const now = Date.now();
     
-    // Obtener o crear registro
     let record = this.records.get(fullKey);
     if (!record) {
       record = { timestamps: [] };
@@ -52,7 +52,7 @@ export class RateLimiter {
       const remainingMs = record.lockedUntil - now;
       const remainingSecs = Math.ceil(remainingMs / 1000);
       
-      console.warn(
+      logger.warn(
         `[RateLimiter] 🔒 Key "${fullKey}" bloqueada. Tiempo restante: ${remainingSecs}s`
       );
       
@@ -71,16 +71,15 @@ export class RateLimiter {
 
     // Verificar límite
     if (record.timestamps.length >= this.config.maxRequests) {
-      console.warn(
+      logger.warn(
         `[RateLimiter] ⚠️ Límite excedido para "${fullKey}": ${record.timestamps.length}/${this.config.maxRequests} requests`
       );
 
-      // Aplicar lockout si está configurado
       if (this.config.lockoutDuration > 0) {
         record.lockedUntil = now + this.config.lockoutDuration;
         const lockoutSecs = Math.ceil(this.config.lockoutDuration / 1000);
         
-        console.warn(
+        logger.warn(
           `[RateLimiter] 🔒 Key "${fullKey}" bloqueada por ${lockoutSecs}s`
         );
         
@@ -93,7 +92,6 @@ export class RateLimiter {
         };
       }
 
-      // Sin lockout, solo esperar a que expire la ventana
       const oldestRequest = record.timestamps[0];
       const remainingMs = oldestRequest + this.config.windowMs - now;
       const remainingSecs = Math.ceil(remainingMs / 1000);
@@ -105,10 +103,9 @@ export class RateLimiter {
       };
     }
 
-    // Permitir request y registrar timestamp
     record.timestamps.push(now);
     
-    console.log(
+    logger.log(
       `[RateLimiter] ✓ Request permitido para "${fullKey}": ${record.timestamps.length}/${this.config.maxRequests}`
     );
 
@@ -119,22 +116,22 @@ export class RateLimiter {
    * Resetea el contador para una key específica
    */
   reset(key: string): void {
-    const fullKey = `${this.config.keyPrefix}${key}`;
+    const fullKey = `${this.config.keyPrefix}:${key}`; // ✅ FIX: Agregar ':'
     this.records.delete(fullKey);
-    console.log(`[RateLimiter] 🔄 Contador reseteado para "${fullKey}"`);
+    logger.log(`[RateLimiter] 🔄 Contador reseteado para "${fullKey}"`);
   }
 
   /**
-   * Desbloquea una key manualmente (útil para admin)
+   * Desbloquea una key manualmente
    */
   unlock(key: string): void {
-    const fullKey = `${this.config.keyPrefix}${key}`;
+    const fullKey = `${this.config.keyPrefix}:${key}`; // ✅ FIX: Agregar ':'
     const record = this.records.get(fullKey);
     
     if (record) {
       record.lockedUntil = undefined;
       record.timestamps = [];
-      console.log(`[RateLimiter] 🔓 Key "${fullKey}" desbloqueada manualmente`);
+      logger.log(`[RateLimiter] 🔓 Key "${fullKey}" desbloqueada manualmente`);
     }
   }
 
@@ -142,7 +139,7 @@ export class RateLimiter {
    * Obtiene estadísticas de una key
    */
   getStats(key: string) {
-    const fullKey = `${this.config.keyPrefix}${key}`;
+    const fullKey = `${this.config.keyPrefix}:${key}`; // ✅ FIX: Agregar ':'
     const record = this.records.get(fullKey);
     const now = Date.now();
 
@@ -169,7 +166,7 @@ export class RateLimiter {
   }
 
   /**
-   * ✅ NUEVO: Obtiene estadísticas globales de todos los usuarios
+   * Obtiene estadísticas globales
    */
   getAllStats() {
     const now = Date.now();
@@ -209,12 +206,12 @@ export class RateLimiter {
   }
 
   /**
-   * ✅ NUEVO: Resetea TODOS los contadores (solo para desarrollo)
+   * Resetea TODOS los contadores
    */
   resetAll(): void {
     const count = this.records.size;
     this.records.clear();
-    console.log(`[RateLimiter] 🧽 Todos los contadores reseteados (${count} registros eliminados)`);
+    logger.log(`[RateLimiter] 🧽 Todos los contadores reseteados (${count} registros eliminados)`);
   }
 
   /**
@@ -225,16 +222,13 @@ export class RateLimiter {
     let cleaned = 0;
 
     for (const [key, record] of this.records.entries()) {
-      // Limpiar timestamps viejos
       const windowStart = now - this.config.windowMs;
       record.timestamps = record.timestamps.filter(ts => ts > windowStart);
 
-      // Eliminar lockouts expirados
       if (record.lockedUntil && record.lockedUntil < now) {
         record.lockedUntil = undefined;
       }
 
-      // Eliminar registros completamente vacíos
       if (record.timestamps.length === 0 && !record.lockedUntil) {
         this.records.delete(key);
         cleaned++;
@@ -242,29 +236,25 @@ export class RateLimiter {
     }
 
     if (cleaned > 0) {
-      console.log(`[RateLimiter] 🧹 Limpieza: ${cleaned} registros eliminados`);
+      logger.log(`[RateLimiter] 🧹 Limpieza: ${cleaned} registros eliminados`);
     }
   }
 
-  /**
-   * Destructor (importante llamar cuando ya no se usa)
-   */
   destroy(): void {
     clearInterval(this.cleanupInterval);
     this.records.clear();
   }
 }
 
-// Factory functions para casos comunes
-
+// Factory functions
 export function createLoginLimiter(config?: Partial<RateLimiterConfig>): RateLimiter {
   return new RateLimiter({
-    windowMs: 300000,        // 5 minutos
-    maxRequests: 3,          // 3 intentos
-    lockoutDuration: 900000, // 15 minutos de lockout
-    keyPrefix: 'login:',
+    windowMs: 300000,
+    maxRequests: 3,
+    lockoutDuration: 900000,
+    keyPrefix: 'login',
     onLimitExceeded: (key, remainingMs) => {
-      console.error(`[Security] 🚨 Login bloqueado para ${key}: ${Math.ceil(remainingMs/1000)}s`);
+      logger.error(`[Security] 🚨 Login bloqueado para ${key}: ${Math.ceil(remainingMs/1000)}s`);
     },
     ...config
   });
@@ -272,12 +262,12 @@ export function createLoginLimiter(config?: Partial<RateLimiterConfig>): RateLim
 
 export function createOrderLimiter(config?: Partial<RateLimiterConfig>): RateLimiter {
   return new RateLimiter({
-    windowMs: 60000,         // 1 minuto
-    maxRequests: 5,          // 5 órdenes
-    lockoutDuration: 30000,  // 30 segundos de lockout
-    keyPrefix: 'order:',
+    windowMs: 60000,
+    maxRequests: 5,
+    lockoutDuration: 30000,
+    keyPrefix: 'order',
     onLimitExceeded: (key, remainingMs) => {
-      console.warn(`[Security] ⚠️ Órdenes limitadas para ${key}: ${Math.ceil(remainingMs/1000)}s`);
+      logger.warn(`[Security] ⚠️ Órdenes limitadas para ${key}: ${Math.ceil(remainingMs/1000)}s`);
     },
     ...config
   });
@@ -285,12 +275,12 @@ export function createOrderLimiter(config?: Partial<RateLimiterConfig>): RateLim
 
 export function createDispenseLimiter(config?: Partial<RateLimiterConfig>): RateLimiter {
   return new RateLimiter({
-    windowMs: 10000,         // 10 segundos
-    maxRequests: 10,         // 10 productos
-    lockoutDuration: 20000,  // 20 segundos de lockout
-    keyPrefix: 'dispense:',
+    windowMs: 10000,
+    maxRequests: 10,
+    lockoutDuration: 20000,
+    keyPrefix: 'dispense',
     onLimitExceeded: (key, remainingMs) => {
-      console.warn(`[Security] ⚠️ Dispensación limitada para ${key}: ${Math.ceil(remainingMs/1000)}s`);
+      logger.warn(`[Security] ⚠️ Dispensación limitada para ${key}: ${Math.ceil(remainingMs/1000)}s`);
     },
     ...config
   });
