@@ -1,12 +1,16 @@
 import { db } from './db';
 import { dispenseService } from '../services/DispenseService';
 import { authService } from './auth';
+import { createOrderLimiter } from './rateLimiter';
 import type { DBSchema } from './db';
 
 export type Product = DBSchema['products'];
 export type Order = DBSchema['orders'];
 export type OrderItem = DBSchema['orderItems'];
 export type StockMovement = DBSchema['stockMovements'];
+
+// ✅ Crear limitador para órdenes
+const orderLimiter = createOrderLimiter();
 
 /**
  * Actualiza el stock de un producto
@@ -45,16 +49,24 @@ export async function updateStock(
 }
 
 /**
- * ✅ OPTIMIZADO: Crear orden sin N+1 queries
+ * ✅ OPTIMIZADO: Crear orden sin N+1 queries + Rate Limiting
  * Complejidad: O(n) en lugar de O(n²)
- * 
- * Antes: 4N queries (1 get por validación + 1 get por item + 1 get por dispensación + 1 put por stock)
- * Ahora: ~4 queries (1 getAll + 1 transacción con N operaciones + 1 get orden + 1 put orden)
  */
 export async function createOrder(
   items: { productId: number; quantity: number; price: number }[],
   paymentMethod: 'cash' | 'card' = 'cash'
 ): Promise<number> {
+  // ✅ RATE LIMITING: Verificar límite de órdenes
+  const currentUser = authService.getCurrentUser();
+  const rateLimitKey = currentUser?.id?.toString() || 'anonymous';
+  
+  const rateLimitCheck = orderLimiter.checkLimit(rateLimitKey);
+  if (!rateLimitCheck.allowed) {
+    const errorMsg = rateLimitCheck.message || 'Demasiadas órdenes';
+    console.error(`[inventory.createOrder] 🔒 Orden bloqueada para ${rateLimitKey}: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
   console.log('[inventory.createOrder] 🛍️ Creando orden con', items.length, 'producto(s)');
   
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -82,9 +94,6 @@ export async function createOrder(
   });
   console.log('[inventory.createOrder] ✓ Stock validado correctamente');
 
-  // Obtener usuario actual (si está logueado)
-  const currentUser = authService.getCurrentUser();
-
   // Crear orden en BD
   console.log('[inventory.createOrder] 📝 Registrando orden en BD...');
   const orderId = await db.add('orders', {
@@ -107,11 +116,10 @@ export async function createOrder(
     console.log(`[inventory.createOrder] 🎁 ${pointsEarned} puntos de fidelidad agregados`);
   }
 
-  // ✅ OPTIMIZACIÓN 3: Registrar items y actualizar stock (batch operations)
+  // ✅ OPTIMIZACIÓN 3: Registrar items y actualizar stock
   console.log('[inventory.createOrder] 📦 Procesando items de la orden...');
   
   try {
-    // Procesar cada item secuencialmente pero de forma optimizada
     for (const { item, product } of itemsWithProducts) {
       console.log(`[inventory.createOrder]   • Procesando: ${product.title} (ID: ${item.productId}, Qty: ${item.quantity})`);
       
