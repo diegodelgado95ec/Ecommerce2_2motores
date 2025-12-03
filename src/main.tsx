@@ -1,4 +1,4 @@
-// src/main.tsx - VERSIÓN CON RATE LIMITERS EXPUESTOS
+// src/main.tsx - VERSIÓN CORREGIDA CON getStats
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -8,7 +8,7 @@ import { initializeDB } from './lib/inventory';
 import { authService } from './lib/auth';
 import { db } from './lib/db';
 import { dispenseService } from './services/DispenseService';
-import { loginLimiter, registerLimiter, orderLimiter } from './lib/securityMiddleware'; // ✅ IMPORTAR LIMITERS
+import { loginLimiter, registerLimiter, orderLimiter, getAllRateLimitStats, resetAllLimiters } from './lib/securityMiddleware';
 
 /**
  * Inicialización de la aplicación
@@ -55,10 +55,12 @@ if (import.meta.env.DEV) {
   (window as any).authService = authService;
   (window as any).dispenseService = dispenseService;
   
-  // ✅ NUEVO: Exponer rate limiters
+  // ✅ Exponer rate limiters
   (window as any).loginLimiter = loginLimiter;
   (window as any).registerLimiter = registerLimiter;
   (window as any).orderLimiter = orderLimiter;
+  (window as any).getAllRateLimitStats = getAllRateLimitStats;
+  (window as any).resetAllLimiters = resetAllLimiters;
   
   // Helper functions para pruebas rápidas
   (window as any).testAuth = {
@@ -96,45 +98,44 @@ if (import.meta.env.DEV) {
       return result;
     },
     
-    // ✅ NUEVO: Ver estado de rate limiting
+    // ✅ CORREGIDO: Ver estado de rate limiting
     rateLimitStatus: (email: string) => {
-      const loginKey = `login:${email}`;
-      const registerKey = `register:${email}`;
-      
       console.log('\n🔒 ESTADO DE RATE LIMITING');
       console.log('──────────────────────────────');
       
-      const loginStatus = loginLimiter.getRemainingAttempts(loginKey);
+      // Login stats
+      const loginStats = loginLimiter.getStats(email);
+      const loginRemaining = loginStats.maxRequests - loginStats.requests;
       console.log(`Login (${email}):`);
-      console.log(`  Intentos restantes: ${loginStatus.remaining}/${loginLimiter['maxRequests']}`);
-      console.log(`  Bloqueado: ${loginStatus.blocked ? '🔴 SÍ' : '🟢 NO'}`);
-      if (loginStatus.blocked && loginStatus.resetIn) {
-        console.log(`  Se desbloquea en: ${Math.ceil(loginStatus.resetIn / 1000)}s`);
+      console.log(`  Intentos restantes: ${loginRemaining}/${loginStats.maxRequests}`);
+      console.log(`  Bloqueado: ${loginStats.isLocked ? '🔴 SÍ' : '🟢 NO'}`);
+      if (loginStats.isLocked && loginStats.remainingMs) {
+        console.log(`  Se desbloquea en: ${Math.ceil(loginStats.remainingMs / 1000)}s`);
       }
       
-      const registerStatus = registerLimiter.getRemainingAttempts(registerKey);
+      // Register stats
+      const registerStats = registerLimiter.getStats(email);
+      const registerRemaining = registerStats.maxRequests - registerStats.requests;
       console.log(`\nRegistro (${email}):`);
-      console.log(`  Intentos restantes: ${registerStatus.remaining}/${registerLimiter['maxRequests']}`);
-      console.log(`  Bloqueado: ${registerStatus.blocked ? '🔴 SÍ' : '🟢 NO'}`);
-      if (registerStatus.blocked && registerStatus.resetIn) {
-        console.log(`  Se desbloquea en: ${Math.ceil(registerStatus.resetIn / 1000)}s`);
+      console.log(`  Intentos restantes: ${registerRemaining}/${registerStats.maxRequests}`);
+      console.log(`  Bloqueado: ${registerStats.isLocked ? '🔴 SÍ' : '🟢 NO'}`);
+      if (registerStats.isLocked && registerStats.remainingMs) {
+        console.log(`  Se desbloquea en: ${Math.ceil(registerStats.remainingMs / 1000)}s`);
       }
       
       console.log('──────────────────────────────\n');
+      
+      return { login: loginStats, register: registerStats };
     },
     
-    // ✅ NUEVO: Desbloquear usuario manualmente
+    // ✅ Desbloquear usuario manualmente
     unblock: (email: string) => {
-      const loginKey = `login:${email}`;
-      const registerKey = `register:${email}`;
-      
-      loginLimiter.reset(loginKey);
-      registerLimiter.reset(registerKey);
-      
+      loginLimiter.unlock(email);
+      registerLimiter.unlock(email);
       console.log(`✅ Usuario ${email} desbloqueado manualmente`);
     },
     
-    // ✅ NUEVO: Ver historial de dispensaciones
+    // ✅ Ver historial de dispensaciones
     dispenseHistory: () => {
       const history = dispenseService.getHistory();
       console.log('\n📦 HISTORIAL DE DISPENSACIONES');
@@ -144,7 +145,7 @@ if (import.meta.env.DEV) {
       return history;
     },
     
-    // ✅ NUEVO: Ver estadísticas de dispensaciones
+    // ✅ Ver estadísticas de dispensaciones
     dispenseStats: () => {
       const stats = dispenseService.getStats();
       console.log('\n📊 ESTADÍSTICAS DE DISPENSACIONES');
@@ -174,9 +175,11 @@ if (import.meta.env.DEV) {
   console.log('   - testAuth.currentUser()');
   
   console.log('\n🛡️ RATE LIMITING:');
-  console.log('   - loginLimiter.getRemainingAttempts("login:email@example.com")');
+  console.log('   - loginLimiter.getStats("email@example.com")');
   console.log('   - testAuth.rateLimitStatus("email@example.com")');
   console.log('   - testAuth.unblock("email@example.com")');
+  console.log('   - getAllRateLimitStats()');
+  console.log('   - resetAllLimiters()  // Solo DEV');
   
   console.log('\n📦 DISPENSACIÓN:');
   console.log('   - dispenseService.dispenseProduct(id, qty)');
