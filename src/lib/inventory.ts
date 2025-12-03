@@ -1,7 +1,12 @@
+// src/lib/inventory.ts - Sistema de inventario con SRP
+
 import { db } from './db';
 import { dispenseService } from '../services/DispenseService';
 import { authService } from './auth';
 import { createOrderLimiter } from './rateLimiter';
+import { stockService } from '../services/StockService';
+import { loyaltyService } from '../services/LoyaltyService';
+import logger from './logger';
 import type { DBSchema } from './db';
 
 export type Product = DBSchema['products'];
@@ -9,93 +14,53 @@ export type Order = DBSchema['orders'];
 export type OrderItem = DBSchema['orderItems'];
 export type StockMovement = DBSchema['stockMovements'];
 
-// ✅ Crear limitador para órdenes
 const orderLimiter = createOrderLimiter();
 
 /**
- * Actualiza el stock de un producto
- */
-export async function updateStock(
-  productId: number,
-  quantity: number,
-  type: 'in' | 'out',
-  note?: string
-): Promise<number> {
-  const product = await db.get('products', productId);
-  if (!product) {
-    throw new Error('Producto no encontrado');
-  }
-
-  const newStock = type === 'in' ? product.stock + quantity : product.stock - quantity;
-  if (newStock < 0) {
-    throw new Error('Stock insuficiente');
-  }
-
-  await db.put('products', {
-    ...product,
-    stock: newStock,
-    updatedAt: new Date().toISOString()
-  } as any);
-
-  await db.add('stockMovements', {
-    productId,
-    quantity,
-    type,
-    note,
-    createdAt: new Date().toISOString()
-  } as any);
-
-  return newStock;
-}
-
-/**
- * ✅ OPTIMIZADO: Crear orden sin N+1 queries + Rate Limiting
- * Complejidad: O(n) en lugar de O(n²)
+ * ✅ OPTIMIZACIÓN #8: Refactorizado con SRP
+ * 
+ * createOrder ahora SOLO:
+ * - Valida rate limiting
+ * - Crea la orden en BD
+ * - Registra items de orden
+ * - Orquesta servicios especializados
+ * 
+ * Delega responsabilidades a:
+ * - StockService: Validación y actualización de stock
+ * - LoyaltyService: Puntos de fidelidad
+ * - DispenseService: Dispensación física
  */
 export async function createOrder(
   items: { productId: number; quantity: number; price: number }[],
   paymentMethod: 'cash' | 'card' = 'cash'
 ): Promise<number> {
-  // ✅ RATE LIMITING: Verificar límite de órdenes
+  // 🛡️ RATE LIMITING
   const currentUser = authService.getCurrentUser();
   const rateLimitKey = currentUser?.id?.toString() || 'anonymous';
   
   const rateLimitCheck = orderLimiter.checkLimit(rateLimitKey);
   if (!rateLimitCheck.allowed) {
     const errorMsg = rateLimitCheck.message || 'Demasiadas órdenes';
-    console.error(`[inventory.createOrder] 🔒 Orden bloqueada para ${rateLimitKey}: ${errorMsg}`);
+    logger.error(`[Inventory] 🔒 Orden bloqueada para ${rateLimitKey}: ${errorMsg}`);
     throw new Error(errorMsg);
   }
 
-  console.log('[inventory.createOrder] 🛍️ Creando orden con', items.length, 'producto(s)');
+  logger.log(`[Inventory] 🛍️ Creando orden con ${items.length} producto(s)`);
   
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  console.log('[inventory.createOrder] 💰 Total de orden: $', total.toFixed(2));
+  logger.log(`[Inventory] 💰 Total de orden: $${total.toFixed(2)}`);
 
-  // ✅ OPTIMIZACIÓN 1: Cargar TODOS los productos de una vez (1 query en lugar de N)
-  console.log('[inventory.createOrder] ✓ Cargando productos de la orden...');
-  const allProducts = await db.getAll('products');
-  
-  // Crear Map para acceso O(1)
-  const productsMap = new Map(allProducts.map(p => [p.id!, p]));
-  console.log(`[inventory.createOrder] ✓ ${allProducts.length} productos cargados en memoria`);
+  // ✅ DELEGADO A StockService: Validar stock y cargar productos
+  const productsMap = await stockService.validateStockAvailability(items);
 
-  // ✅ OPTIMIZACIÓN 2: Validar stock usando el Map (sin queries adicionales)
-  console.log('[inventory.createOrder] ✓ Validando stock disponible...');
-  const itemsWithProducts = items.map(item => {
-    const product = productsMap.get(item.productId);
-    if (!product) {
-      throw new Error(`Producto ID ${item.productId} no encontrado`);
-    }
-    if (product.stock < item.quantity) {
-      throw new Error(`Stock insuficiente para ${product.title}. Disponible: ${product.stock}, Solicitado: ${item.quantity}`);
-    }
-    return { item, product };
-  });
-  console.log('[inventory.createOrder] ✓ Stock validado correctamente');
+  // Preparar items con productos
+  const itemsWithProducts = items.map(item => ({
+    item,
+    product: productsMap.get(item.productId)!
+  }));
 
-  // Crear orden en BD
-  console.log('[inventory.createOrder] 📝 Registrando orden en BD...');
+  // 📋 Crear orden en BD
+  logger.log('[Inventory] 📝 Registrando orden en BD...');
   const orderId = await db.add('orders', {
     userId: currentUser?.id,
     total,
@@ -105,56 +70,34 @@ export async function createOrder(
     createdAt: new Date().toISOString()
   } as any);
   
-  console.log(`[inventory.createOrder] ✓ Orden #${orderId} creada en BD`);
+  logger.log(`[Inventory] ✓ Orden #${orderId} creada en BD`);
 
-  // Si es usuario registrado, sumar puntos de fidelidad
+  // ✅ DELEGADO A LoyaltyService: Agregar puntos de fidelidad
   if (currentUser) {
-    const pointsEarned = Math.floor(total * 10);
-    currentUser.loyaltyPoints += pointsEarned;
-    currentUser.updatedAt = new Date().toISOString() as any;
-    await db.put('users', currentUser);
-    console.log(`[inventory.createOrder] 🎁 ${pointsEarned} puntos de fidelidad agregados`);
+    await loyaltyService.addPointsToUser(currentUser, total);
   }
 
-  // ✅ OPTIMIZACIÓN 3: Registrar items y actualizar stock
-  console.log('[inventory.createOrder] 📦 Procesando items de la orden...');
+  // 📦 Procesar items de la orden
+  logger.log('[Inventory] 📦 Procesando items de la orden...');
   
   try {
-    for (const { item, product } of itemsWithProducts) {
-      console.log(`[inventory.createOrder]   • Procesando: ${product.title} (ID: ${item.productId}, Qty: ${item.quantity})`);
-      
-      // Agregar orderItem
+    // Registrar items en BD
+    for (const { item } of itemsWithProducts) {
       await db.add('orderItems', {
         orderId,
         productId: item.productId,
         quantity: item.quantity,
         price: item.price
       } as any);
-      console.log(`[inventory.createOrder]     ✓ Item registrado en orden #${orderId}`);
-
-      // Actualizar stock del producto
-      const newStock = product.stock - item.quantity;
-      await db.put('products', {
-        ...product,
-        stock: newStock,
-        updatedAt: new Date().toISOString()
-      } as any);
-
-      // Registrar movimiento de stock
-      await db.add('stockMovements', {
-        productId: item.productId,
-        quantity: item.quantity,
-        type: 'out' as const,
-        note: `Orden #${orderId}`,
-        createdAt: new Date().toISOString()
-      } as any);
-      
-      console.log(`[inventory.createOrder]     ✓ Stock actualizado: ${product.stock} → ${newStock}`);
     }
+    logger.log('[Inventory] ✓ Items registrados en orden');
+
+    // ✅ DELEGADO A StockService: Actualizar stock
+    await stockService.updateStockForOrder(orderId, itemsWithProducts);
     
-    console.log(`[inventory.createOrder] ✓✓✓ Orden #${orderId} completada exitosamente`);
+    logger.log(`[Inventory] ✓✓✓ Orden #${orderId} completada exitosamente`);
   } catch (error) {
-    console.error('[inventory.createOrder] ❌ Error procesando items:', error);
+    logger.error('[Inventory] ❌ Error procesando items:', error);
     
     // Marcar orden como fallida
     const order = await db.get('orders', orderId);
@@ -167,10 +110,9 @@ export async function createOrder(
     throw error;
   }
 
-  // ✅ OPTIMIZACIÓN 4: Preparar items para dispensación (sin queries adicionales)
-  console.log('[inventory.createOrder] 🎯 Iniciando dispensación física de productos...');
+  // 🎯 Dispensación física
+  logger.log('[Inventory] 🎯 Iniciando dispensación física...');
   try {
-    // Usar el Map ya cargado (sin queries adicionales)
     const itemsToDispense = itemsWithProducts.map(({ item, product }) => ({
       productId: item.productId,
       title: product.title,
@@ -181,13 +123,13 @@ export async function createOrder(
     
     dispenseResults.forEach(result => {
       if (result.success) {
-        console.log(`[inventory.createOrder]   ✓ ${result.message}`);
+        logger.log(`[Inventory]   ✓ ${result.message}`);
       } else {
-        console.warn(`[inventory.createOrder]   ⚠️ ${result.message}`);
+        logger.warn(`[Inventory]   ⚠️ ${result.message}`);
       }
     });
     
-    // Actualizar estado de pago a completado
+    // Actualizar estado
     const order = await db.get('orders', orderId);
     if (order) {
       order.paymentStatus = 'completed';
@@ -195,9 +137,9 @@ export async function createOrder(
       await db.put('orders', order);
     }
     
-    console.log('[inventory.createOrder] ✓✓✓ Dispensación física completada');
+    logger.log('[Inventory] ✓✓✓ Dispensación física completada');
   } catch (error) {
-    console.error('[inventory.createOrder] ❌ Error en dispensación física:', error);
+    logger.error('[Inventory] ❌ Error en dispensación física:', error);
     
     // Marcar pago como fallido
     const order = await db.get('orders', orderId);
@@ -207,10 +149,33 @@ export async function createOrder(
       await db.put('orders', order);
     }
     
-    console.warn('[inventory.createOrder] ⚠️ Orden creada pero dispensación falló');
+    logger.warn('[Inventory] ⚠️ Orden creada pero dispensación falló');
   }
 
   return orderId;
+}
+
+/**
+ * Actualiza el stock de un producto
+ * 👉 Considera usar StockService directamente
+ */
+export async function updateStock(
+  productId: number,
+  quantity: number,
+  type: 'in' | 'out',
+  note?: string
+): Promise<number> {
+  const product = await db.get('products', productId);
+  if (!product) {
+    throw new Error('Producto no encontrado');
+  }
+
+  return await stockService.updateProductStock(
+    product,
+    quantity,
+    type,
+    note || `Actualización manual de stock`
+  );
 }
 
 export async function getAllProducts(): Promise<Product[]> {
