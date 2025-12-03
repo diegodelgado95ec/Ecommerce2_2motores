@@ -169,6 +169,55 @@ export class RateLimiter {
   }
 
   /**
+   * ✅ NUEVO: Obtiene estadísticas globales de todos los usuarios
+   */
+  getAllStats() {
+    const now = Date.now();
+    const stats = {
+      totalTracked: this.records.size,
+      totalLocked: 0,
+      users: [] as Array<{
+        key: string;
+        requests: number;
+        maxRequests: number;
+        isLocked: boolean;
+        remainingMs: number;
+      }>
+    };
+
+    for (const [fullKey, record] of this.records.entries()) {
+      const windowStart = now - this.config.windowMs;
+      const recentRequests = record.timestamps.filter(ts => ts > windowStart);
+      const isLocked = !!(record.lockedUntil && record.lockedUntil > now);
+      
+      if (isLocked) {
+        stats.totalLocked++;
+      }
+
+      stats.users.push({
+        key: fullKey,
+        requests: recentRequests.length,
+        maxRequests: this.config.maxRequests,
+        isLocked,
+        remainingMs: record.lockedUntil && record.lockedUntil > now 
+          ? record.lockedUntil - now 
+          : 0
+      });
+    }
+
+    return stats;
+  }
+
+  /**
+   * ✅ NUEVO: Resetea TODOS los contadores (solo para desarrollo)
+   */
+  resetAll(): void {
+    const count = this.records.size;
+    this.records.clear();
+    console.log(`[RateLimiter] 🧽 Todos los contadores reseteados (${count} registros eliminados)`);
+  }
+
+  /**
    * Limpieza de registros viejos
    */
   private cleanup(): void {
@@ -208,7 +257,7 @@ export class RateLimiter {
 
 // Factory functions para casos comunes
 
-export function createLoginLimiter(): RateLimiter {
+export function createLoginLimiter(config?: Partial<RateLimiterConfig>): RateLimiter {
   return new RateLimiter({
     windowMs: 300000,        // 5 minutos
     maxRequests: 3,          // 3 intentos
@@ -216,11 +265,12 @@ export function createLoginLimiter(): RateLimiter {
     keyPrefix: 'login:',
     onLimitExceeded: (key, remainingMs) => {
       console.error(`[Security] 🚨 Login bloqueado para ${key}: ${Math.ceil(remainingMs/1000)}s`);
-    }
+    },
+    ...config
   });
 }
 
-export function createOrderLimiter(): RateLimiter {
+export function createOrderLimiter(config?: Partial<RateLimiterConfig>): RateLimiter {
   return new RateLimiter({
     windowMs: 60000,         // 1 minuto
     maxRequests: 5,          // 5 órdenes
@@ -228,11 +278,12 @@ export function createOrderLimiter(): RateLimiter {
     keyPrefix: 'order:',
     onLimitExceeded: (key, remainingMs) => {
       console.warn(`[Security] ⚠️ Órdenes limitadas para ${key}: ${Math.ceil(remainingMs/1000)}s`);
-    }
+    },
+    ...config
   });
 }
 
-export function createDispenseLimiter(): RateLimiter {
+export function createDispenseLimiter(config?: Partial<RateLimiterConfig>): RateLimiter {
   return new RateLimiter({
     windowMs: 10000,         // 10 segundos
     maxRequests: 10,         // 10 productos
@@ -240,6 +291,7 @@ export function createDispenseLimiter(): RateLimiter {
     keyPrefix: 'dispense:',
     onLimitExceeded: (key, remainingMs) => {
       console.warn(`[Security] ⚠️ Dispensación limitada para ${key}: ${Math.ceil(remainingMs/1000)}s`);
-    }
+    },
+    ...config
   });
 }
