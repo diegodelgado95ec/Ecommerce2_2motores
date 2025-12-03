@@ -1,15 +1,11 @@
 // src/lib/auth.ts - Sistema de autenticación con Rate Limiting
 
 import { db } from './db';
-import { createLoginLimiter } from './rateLimiter';
+import { loginLimiter, registerLimiter } from './securityMiddleware'; // ✅ IMPORTAR DE CENTRALIZADO
 import type { DBSchema } from './db';
 
 type User = DBSchema['users'];
 type Session = DBSchema['sessions'];
-
-// ✅ Crear limitadores para login y registro
-const loginLimiter = createLoginLimiter();
-const registerLimiter = createLoginLimiter(); // Usar misma config (3/5min)
 
 /**
  * Clase para manejar autenticación y autorización
@@ -57,7 +53,7 @@ class AuthService {
     role: 'admin' | 'customer' = 'customer',
     phone?: string
   ): Promise<User> {
-    // ✅ RATE LIMITING: Verificar límite de registros
+    // ✅ RATE LIMITING: Verificar límite de registros (sin prefijo, ya lo tiene el limiter)
     const rateLimitCheck = registerLimiter.checkLimit(email);
     if (!rateLimitCheck.allowed) {
       const errorMsg = rateLimitCheck.message || 'Demasiados intentos de registro';
@@ -121,7 +117,7 @@ class AuthService {
    * ✅ CON RATE LIMITING AGRESIVO (Prioridad ALTA)
    */
   async login(email: string, password: string): Promise<{ user: User; token: string }> {
-    // ✅ RATE LIMITING: Verificar límite de intentos de login
+    // ✅ RATE LIMITING: Verificar límite de intentos de login (sin prefijo)
     const rateLimitCheck = loginLimiter.checkLimit(email);
     if (!rateLimitCheck.allowed) {
       const errorMsg = rateLimitCheck.message || 'Demasiados intentos de login';
@@ -154,7 +150,7 @@ class AuthService {
       throw new Error('Email o contraseña incorrectos');
     }
 
-    // ✅ Login exitoso: Resetear contador de rate limit
+    // ✅ Login exitoso: Resetear contador de rate limit (sin prefijo)
     loginLimiter.reset(email);
 
     // Crear sesión
