@@ -105,7 +105,7 @@ export function Dashboard() {
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
       <div className="bg-white shadow">
-        <div className="max-w-[98%] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex">
               <div className="flex-shrink-0 flex items-center">
@@ -138,14 +138,14 @@ export function Dashboard() {
       </div>
 
       {serialError && (
-        <div className="max-w-[98%] mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
           <div className="bg-red-50 text-red-500 p-4 rounded-md">
             {serialError}
           </div>
         </div>
       )}
 
-      <div className="max-w-[98%] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Métricas Dashboard */}
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
           <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -213,10 +213,10 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Navegación por paneles con scroll horizontal */}
+        {/* Navegación por paneles */}
         <div className="bg-white shadow rounded-lg mb-8">
           <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100" aria-label="Tabs" style={{scrollbarWidth: 'thin'}}>
+            <nav className="-mb-px flex space-x-8 px-6 overflow-x-auto" aria-label="Tabs" style={{scrollbarWidth: 'thin'}}>
               <button
                 onClick={() => setActiveTab('inventory')}
                 className={`${
