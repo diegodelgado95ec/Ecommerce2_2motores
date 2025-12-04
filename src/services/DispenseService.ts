@@ -1,7 +1,9 @@
-// src/services/DispenseService.ts - VERSIÓN COMPLETA CON TODOS LOS MÉTODOS
+// src/services/DispenseService.ts - CON INTEGRACIÓN DE SLOTS
 
 import { db } from '../lib/db';
 import { ledService } from './LedService';
+import { logger } from './LoggerService';
+import type { DBSchema } from '../lib/db';
 
 export interface DispenseResult {
   success: boolean;
@@ -9,6 +11,8 @@ export interface DispenseResult {
   quantity: number;
   message: string;
   error?: string;
+  slotPosition?: number;
+  bandDistance?: number;
 }
 
 class DispenseService {
@@ -29,9 +33,9 @@ class DispenseService {
   }
 
   /**
-   * ✅ Valida parámetros de entrada
+   * ✅ Valida parámetros de entrada y slot físico
    */
-  private async validateInput(productId: number, quantity: number): Promise<void> {
+  private async validateInput(productId: number, quantity: number): Promise<DBSchema['products']> {
     // Validar productId
     if (!Number.isInteger(productId) || productId <= 0) {
       throw new Error(`ID de producto inválido: ${productId}`);
@@ -50,7 +54,7 @@ class DispenseService {
       throw new Error(`Cantidad mínima es ${this.MIN_QUANTITY}, recibido: ${quantity}`);
     }
 
-    // ✅ Validar contra stock real
+    // ✅ Validar contra stock real y datos de slot
     const product = await db.get('products', productId);
     
     if (!product) {
@@ -62,6 +66,35 @@ class DispenseService {
         `Stock insuficiente para producto "${product.title}". Disponible: ${product.stock}, solicitado: ${quantity}`
       );
     }
+
+    // ✨ NUEVO: Validar que el producto tenga slot asignado
+    if (!product.slotPosition) {
+      logger.warn('Producto dispensable sin slot asignado', {
+        productId,
+        productTitle: product.title
+      });
+      throw new Error(`Producto "${product.title}" no tiene slot físico asignado`);
+    }
+
+    // ✨ NUEVO: Validar que el slot esté activo
+    if (product.isSlotActive === false) {
+      logger.error('Intento de dispensar desde slot inactivo', {
+        productId,
+        slotPosition: product.slotPosition
+      });
+      throw new Error(`Slot ${product.slotPosition} está inactivo. No se puede dispensar.`);
+    }
+
+    // ✨ NUEVO: Validar que tenga distancia configurada
+    if (!product.bandDistance) {
+      logger.warn('Producto sin distancia de banda configurada', {
+        productId,
+        slotPosition: product.slotPosition
+      });
+      throw new Error(`Producto "${product.title}" no tiene distancia de banda configurada`);
+    }
+
+    return product;
   }
 
   /**
@@ -79,38 +112,80 @@ class DispenseService {
       message: '',
     };
 
+    let product: DBSchema['products'];
+
     // ✅ VALIDACIÓN ASYNC
     try {
-      await this.validateInput(productId, quantity);
+      product = await this.validateInput(productId, quantity);
+      result.slotPosition = product.slotPosition;
+      result.bandDistance = product.bandDistance;
     } catch (error) {
       console.error('[DispenseService] ❌ Validación fallida:', error);
       result.message = error instanceof Error ? error.message : 'Error de validación';
       result.error = result.message;
       this.dispensationHistory.push(result);
+      
+      logger.error('Validación de dispensación fallida', {
+        productId,
+        quantity,
+        error: result.error
+      });
+      
       return result;
     }
 
     console.log(
-      `[DispenseService] 🔄 Iniciando dispensación: ${productTitle || 'Producto'} (ID: ${productId}, Cantidad: ${quantity})`
+      `[DispenseService] 🔄 Iniciando dispensación: ${product.title} (ID: ${productId}, Slot: ${product.slotPosition}, Distancia: ${product.bandDistance}cm, Cantidad: ${quantity})`
     );
 
+    logger.info('Iniciando dispensación', {
+      productId,
+      productTitle: product.title,
+      slotPosition: product.slotPosition,
+      bandDistance: product.bandDistance,
+      quantity
+    });
+
     try {
+      // ✨ NUEVO: Enviar señal al ESP32 con datos de slot
+      // TODO: Actualizar ledService.sendProductSignal para aceptar slotPosition y bandDistance
+      // Por ahora usa el método existente
       const sent = await ledService.sendProductSignal(productId, quantity);
 
       if (sent) {
         result.success = true;
-        result.message = `✓ ${productTitle || 'Producto'} fue dispensado correctamente`;
+        result.message = `✓ ${product.title} fue dispensado correctamente desde Slot ${product.slotPosition}`;
+        
+        logger.info('Dispensación exitosa', {
+          productId,
+          slotPosition: product.slotPosition,
+          quantity
+        });
+        
         console.log(`[DispenseService] ✓ Dispensación exitosa: ${result.message}`);
       } else {
         result.success = false;
-        result.message = `⚠️ No se pudo contactar el dispensador de ${productTitle || 'el producto'} - Compra procesada sin dispensación`;
+        result.message = `⚠️ No se pudo contactar el dispensador de ${product.title} (Slot ${product.slotPosition}) - Compra procesada sin dispensación`;
         result.error = 'ESP32 no respondió';
+        
+        logger.warn('Dispensación fallida - ESP32 no respondió', {
+          productId,
+          slotPosition: product.slotPosition
+        });
+        
         console.warn(`[DispenseService] ${result.message}`);
       }
     } catch (error) {
       result.success = false;
       result.error = error instanceof Error ? error.message : 'Error desconocido';
-      result.message = `⚠️ Error dispensando ${productTitle || 'producto'}: ${result.error} - Compra procesada sin dispensación`;
+      result.message = `⚠️ Error dispensando ${product.title} desde Slot ${product.slotPosition}: ${result.error} - Compra procesada sin dispensación`;
+      
+      logger.error('Error en dispensación', {
+        productId,
+        slotPosition: product.slotPosition,
+        error: result.error
+      });
+      
       console.error(`[DispenseService] ❌ Error en dispensación:`, error);
     }
 
@@ -132,6 +207,11 @@ class DispenseService {
     }>
   ): Promise<DispenseResult[]> {
     console.log(`[DispenseService] 📦 Procesando dispensación para orden con ${items.length} producto(s)`);
+    
+    logger.info('Procesando orden de dispensación', {
+      itemCount: items.length,
+      items: items.map(i => ({ productId: i.productId, quantity: i.quantity }))
+    });
 
     const results: DispenseResult[] = [];
 
@@ -170,6 +250,12 @@ class DispenseService {
     console.log(
       `[DispenseService] ${allSuccess ? '✓' : '⚠️'} Dispensación completada para orden`
     );
+    
+    logger.info('Orden de dispensación completada', {
+      allSuccess,
+      successCount: results.filter(r => r.success).length,
+      totalCount: results.length
+    });
 
     return results;
   }
