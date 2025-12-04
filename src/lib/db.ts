@@ -1,4 +1,4 @@
-// src/lib/db.ts - ACTUALIZADO
+// src/lib/db.ts - ACTUALIZADO CON SLOTS
 
 export interface DBSchema {
   products: {
@@ -9,11 +9,15 @@ export interface DBSchema {
     unit: string;
     image: string;
     rating: number;
-     createdAt: string; // ✅ CAMBIAR Date a string
-    updatedAt: string; // ✅ CAMBIAR Date a string
+    createdAt: string;
+    updatedAt: string;
+    // ✨ NUEVOS CAMPOS FASE 2: Gestión de Slots Físicos
+    slotPosition?: number;      // Posición física (1, 2, 3, ...)
+    bandDistance?: number;       // Distancia en cm para la banda
+    isSlotActive?: boolean;      // Si el slot está operativo
+    lastCalibration?: string;    // Última calibración del slot
   };
   
-  // ✅ NUEVA TABLA: Usuarios
   users: {
     id: number;
     email: string;
@@ -23,27 +27,26 @@ export interface DBSchema {
     phone?: string;
     isActive: boolean;
     loyaltyPoints: number;
-     createdAt: string; // ✅ CAMBIAR Date a string
-    updatedAt: string; // ✅ CAMBIAR Date a string
+    createdAt: string;
+    updatedAt: string;
   };
   
-  // ✅ NUEVA TABLA: Sesiones
   sessions: {
     id: number;
     userId: number;
     token: string;
-     expiresAt: string; // ✅ CAMBIAR Date a string
-    createdAt: string; // ✅ CAMBIAR Date a string
+    expiresAt: string;
+    createdAt: string;
   };
   
   orders: {
     id: number;
-    userId?: number; // ✅ Opcional - null para clientes sin cuenta
+    userId?: number;
     total: number;
     status: string;
-    paymentMethod: 'cash' | 'card' | 'pending'; // ✅ AGREGADO
-    paymentStatus: 'pending' | 'completed' | 'failed'; // ✅ AGREGADO
-    createdAt: string; // ✅ CAMBIAR Date a string
+    paymentMethod: 'cash' | 'card' | 'pending';
+    paymentStatus: 'pending' | 'completed' | 'failed';
+    createdAt: string;
   };
   
   orderItems: {
@@ -60,7 +63,7 @@ export interface DBSchema {
     quantity: number;
     type: 'in' | 'out';
     note?: string;
-     createdAt: string; // ✅ CAMBIAR Date a string
+    createdAt: string;
   };
   
   product_batches: {
@@ -71,7 +74,6 @@ export interface DBSchema {
     expiryDate: string;
   };
   
-  // ✅ NUEVA TABLA: Logs de acceso
   access_logs: {
     id: number;
     userId?: number;
@@ -80,14 +82,14 @@ export interface DBSchema {
     ipAddress?: string;
     userAgent?: string;
     success: boolean;
-     createdAt: string; // ✅ CAMBIAR Date a string
+    createdAt: string;
   };
 }
 
 class DB {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'storeDB';
-  private readonly version = 2; // ✅ Incrementar versión
+  private readonly version = 3; // ✅ Incrementar versión para slots
 
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -107,9 +109,19 @@ class DB {
           const productStore = db.createObjectStore('products', { keyPath: 'id', autoIncrement: true });
           productStore.createIndex('title', 'title', { unique: false });
           productStore.createIndex('stock', 'stock', { unique: false });
+          productStore.createIndex('slotPosition', 'slotPosition', { unique: false }); // ✨ NUEVO índice
+        } else {
+          // Si ya existe, intentar agregar el índice en actualización
+          const transaction = (event.target as IDBOpenDBRequest).transaction;
+          if (transaction) {
+            const productStore = transaction.objectStore('products');
+            if (!productStore.indexNames.contains('slotPosition')) {
+              productStore.createIndex('slotPosition', 'slotPosition', { unique: false });
+            }
+          }
         }
 
-        // ✅ NUEVO: Usuarios
+        // Usuarios
         if (!db.objectStoreNames.contains('users')) {
           const userStore = db.createObjectStore('users', { keyPath: 'id', autoIncrement: true });
           userStore.createIndex('email', 'email', { unique: true });
@@ -117,7 +129,7 @@ class DB {
           userStore.createIndex('isActive', 'isActive', { unique: false });
         }
 
-        // ✅ NUEVO: Sesiones
+        // Sesiones
         if (!db.objectStoreNames.contains('sessions')) {
           const sessionStore = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
           sessionStore.createIndex('token', 'token', { unique: true });
@@ -125,7 +137,7 @@ class DB {
           sessionStore.createIndex('expiresAt', 'expiresAt', { unique: false });
         }
 
-        // ✅ NUEVO: Logs de acceso
+        // Logs de acceso
         if (!db.objectStoreNames.contains('access_logs')) {
           const logStore = db.createObjectStore('access_logs', { keyPath: 'id', autoIncrement: true });
           logStore.createIndex('userId', 'userId', { unique: false });
@@ -133,12 +145,12 @@ class DB {
           logStore.createIndex('createdAt', 'createdAt', { unique: false });
         }
 
-        // Órdenes - Actualizar schema existente
+        // Órdenes
         if (!db.objectStoreNames.contains('orders')) {
           const orderStore = db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
-          orderStore.createIndex('userId', 'userId', { unique: false }); // ✅ NUEVO
+          orderStore.createIndex('userId', 'userId', { unique: false });
           orderStore.createIndex('status', 'status', { unique: false });
-          orderStore.createIndex('paymentStatus', 'paymentStatus', { unique: false }); // ✅ NUEVO
+          orderStore.createIndex('paymentStatus', 'paymentStatus', { unique: false });
           orderStore.createIndex('createdAt', 'createdAt', { unique: false });
         }
 
@@ -167,7 +179,6 @@ class DB {
     });
   }
 
-  // ✅ NUEVO: Método para consultar por índice
   async getByIndex<T extends keyof DBSchema>(
     storeName: T,
     indexName: string,
@@ -183,7 +194,6 @@ class DB {
     });
   }
 
-  // ✅ NUEVO: Método para consultar todos por índice
   async getAllByIndex<T extends keyof DBSchema>(
     storeName: T,
     indexName: string,
@@ -199,7 +209,6 @@ class DB {
     });
   }
 
-  // Resto de métodos existentes...
   async transaction<T>(
     storeName: keyof DBSchema,
     mode: IDBTransactionMode,
