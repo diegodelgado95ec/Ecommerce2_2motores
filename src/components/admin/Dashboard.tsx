@@ -105,7 +105,7 @@ export function Dashboard() {
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
       <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex">
               <div className="flex-shrink-0 flex items-center">
@@ -138,14 +138,14 @@ export function Dashboard() {
       </div>
 
       {serialError && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+        <div className="w-full px-4 sm:px-6 lg:px-8 mt-4">
           <div className="bg-red-50 text-red-500 p-4 rounded-md">
             {serialError}
           </div>
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
         {/* Métricas Dashboard */}
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
           <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -213,17 +213,17 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Navegación por paneles */}
+        {/* Navegación por paneles con scroll horizontal */}
         <div className="bg-white shadow rounded-lg mb-8">
           <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+            <nav className="-mb-px flex space-x-8 px-6 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100" aria-label="Tabs" style={{scrollbarWidth: 'thin'}}>
               <button
                 onClick={() => setActiveTab('inventory')}
                 className={`${
                   activeTab === 'inventory'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Control de Inventario
@@ -235,7 +235,7 @@ export function Dashboard() {
                   activeTab === 'products'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Gestión de Productos
@@ -247,7 +247,7 @@ export function Dashboard() {
                   activeTab === 'stock'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Ajuste de Stock
@@ -259,7 +259,7 @@ export function Dashboard() {
                   activeTab === 'sales'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0`}
               >
                 <ShoppingCart className="w-5 h-5 mr-2" />
                 Órdenes y Transacciones
@@ -271,7 +271,7 @@ export function Dashboard() {
                   activeTab === 'users'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0`}
               >
                 <Users className="w-5 h-5 mr-2" />
                 Usuarios
@@ -283,22 +283,23 @@ export function Dashboard() {
                   activeTab === 'batches'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0`}
               >
                 <Mail className="w-5 h-5 mr-2" />
                 Lotes y Reportes
               </button>
-                  <button
-                    onClick={() => setActiveTab('settings')}
-                    className={`${
-                      activeTab === 'settings'
-                        ? 'border-yellow-500 text-yellow-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-                    >
-                    <Settings className="w-5 h-5 mr-2" />
-                    Configuración
-                  </button>
+              
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`${
+                  activeTab === 'settings'
+                    ? 'border-yellow-500 text-yellow-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0`}
+              >
+                <Settings className="w-5 h-5 mr-2" />
+                Configuración
+              </button>
             </nav>
           </div>
         </div>
