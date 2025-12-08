@@ -7,6 +7,7 @@ import { createOrderLimiter } from './rateLimiter';
 import { stockService } from '../services/StockService';
 import { loyaltyService } from '../services/LoyaltyService';
 import logger from './logger';
+import { migrateInitialStock } from './migrations/setInitialStock'; // ✨ NUEVO
 import type { DBSchema } from './db';
 
 export type Product = DBSchema['products'];
@@ -258,6 +259,9 @@ export async function initializeDB(): Promise<void> {
       await db.add('products', product as any);
     }
   }
+
+  // ✨ NUEVO: Ejecutar migración de initialStock
+  await migrateInitialStock();
 }
 
 export { db };
