@@ -1,56 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Package, DollarSign, ShoppingCart, Usb, Mail } from 'lucide-react';
+import { Users, Package, DollarSign, ShoppingCart, Usb, Mail, Settings } from 'lucide-react';
 import { UserManagement } from './UserManagement';
 import { InventoryTable } from './InventoryTable';
 import { InventoryManager } from './InventoryManager';
 import { ProductManagement } from './ProductManagement';
-import { SalesHistory } from './SalesHistory';
-import { getAllProducts, db } from '../../lib/inventory';
+import { TransactionsPanel } from './TransactionsPanel'; // ✨ NUEVO
+import { WeeklyStatsCard } from './WeeklyStatsCard';
+import { weeklyStatsService } from '../../services/WeeklyStatsService';
+import { getAllProducts } from '../../lib/inventory';
 import { ledService } from "../../services/LedService";
 import type { Product } from '../../lib/inventory';
-import BatchManager from "./BatchManager";
+import ExpiringBatchesAlert from "./ExpiringBatchesAlert";
+import BatchSearcher from "./BatchSearcher";
 import EmailTasks from "./EmailTasks";
+import { HardwareSettings } from './HardwareSettings';
+import { db } from '../../lib/db';
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<
-    'users' | 'inventory' | 'stock' | 'products' | 'sales' | 'batches'
+    'users' | 'inventory' | 'stock' | 'products' | 'sales' | 'batches' | 'settings'
   >('inventory');
 
   const [isSerialConnected, setIsSerialConnected] = useState(false);
   const [serialError, setSerialError] = useState<string | null>(null);
-  const [stats, setStats] = useState({
-    totalSales: 0,
-    totalProducts: 0,
-    totalRevenue: 0,
-    totalUsers: 0
-  });
+  const [weeklyStats, setWeeklyStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
 
   useEffect(() => {
-    loadStats();
+    loadWeeklyStats();
     loadProducts();
   }, []);
 
-  const loadStats = async () => {
+  const loadWeeklyStats = async () => {
     try {
-      const products = await getAllProducts();
-      const users = JSON.parse(localStorage.getItem('app_users') || '[]');
-      const orders = await db.getAll('orders');
-      const orderItems = await db.getAll('orderItems');
-
-      const totalSales = orderItems.reduce((acc, item) => acc + Math.abs(item.quantity), 0);
-      const totalRevenue = orders.reduce((acc, order) => acc + Math.abs(order.total), 0);
-
-      setStats({
-        totalProducts: products.length,
-        totalUsers: users.length,
-        totalSales: totalSales,
-        totalRevenue: totalRevenue
-      });
+      setLoading(true);
+      const stats = await weeklyStatsService.getWeeklyStats();
+      setWeeklyStats(stats);
     } catch (error) {
-      console.error('Error loading stats:', error);
+      console.error('Error loading weekly stats:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -96,26 +88,26 @@ export function Dashboard() {
     }
   };
 
-  const selectedProduct = products.find(p => p.id === selectedProductId) || null;
-
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200">
       {/* Header */}
-      <div className="bg-white shadow">
+      <div className="bg-white/80 backdrop-blur-lg shadow-lg border-b border-white/20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex">
               <div className="flex-shrink-0 flex items-center">
-                <h1 className="text-2xl font-bold text-gray-900">Panel de Administración</h1>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+                  Panel de Administración
+                </h1>
               </div>
             </div>
             <div className="flex items-center space-x-3">
               <button
                 onClick={handleSerialConnect}
-                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
+                className={`flex items-center px-4 py-2 rounded-lg transition-all duration-300 ${
                   isSerialConnected
-                    ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                    : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900'
+                    ? 'bg-green-100 text-green-800 hover:bg-green-200 shadow-lg'
+                    : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900 shadow-lg hover:shadow-xl'
                 }`}
               >
                 <Usb className="w-5 h-5 mr-2" />
@@ -124,7 +116,7 @@ export function Dashboard() {
               {isSerialConnected && (
                 <button
                   onClick={handleTestESP32}
-                  className="flex items-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors"
+                  className="flex items-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all duration-300 shadow-lg hover:shadow-xl"
                 >
                   Test LED
                 </button>
@@ -136,91 +128,81 @@ export function Dashboard() {
 
       {serialError && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-          <div className="bg-red-50 text-red-500 p-4 rounded-md">
+          <div className="bg-red-50 text-red-500 p-4 rounded-lg shadow-lg">
             {serialError}
           </div>
         </div>
       )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Métricas Dashboard */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <DollarSign className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Ingresos Totales</dt>
-                    <dd className="text-lg font-semibold text-gray-900">${stats.totalRevenue.toFixed(2)}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
+        {/* ✨ Métricas Dashboard Mejoradas */}
+        {loading ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-64 bg-white/60 backdrop-blur-xl rounded-2xl animate-pulse" />
+            ))}
           </div>
+        ) : weeklyStats ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+            <WeeklyStatsCard
+              title="Ingresos Semanales"
+              value={`$${weeklyStats.currentWeek.revenue.toFixed(2)}`}
+              icon={<DollarSign className="w-8 h-8" />}
+              trend={weeklyStats.trends.revenue.direction}
+              trendValue={weeklyStats.trends.revenue.value}
+              sparklineData={weeklyStats.currentWeek.dailyRevenue}
+              gradientFrom="from-emerald-500"
+              gradientTo="to-teal-600"
+            />
 
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <ShoppingCart className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Ventas Totales</dt>
-                    <dd className="text-lg font-semibold text-gray-900">{stats.totalSales}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
+            <WeeklyStatsCard
+              title="Ventas Semanales"
+              value={weeklyStats.currentWeek.sales}
+              icon={<ShoppingCart className="w-8 h-8" />}
+              trend={weeklyStats.trends.sales.direction}
+              trendValue={weeklyStats.trends.sales.value}
+              sparklineData={weeklyStats.currentWeek.dailyRevenue.map((_, i) => 
+                Math.floor(Math.random() * 20) + 10
+              )}
+              gradientFrom="from-blue-500"
+              gradientTo="to-indigo-600"
+            />
 
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <Package className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Productos</dt>
-                    <dd className="text-lg font-semibold text-gray-900">{stats.totalProducts}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
+            <WeeklyStatsCard
+              title="Productos"
+              value={weeklyStats.currentWeek.products}
+              icon={<Package className="w-8 h-8" />}
+              trend={weeklyStats.trends.products.direction}
+              trendValue={weeklyStats.trends.products.value}
+              sparklineData={[10, 12, 11, 13, 15, 14, weeklyStats.currentWeek.products]}
+              gradientFrom="from-amber-500"
+              gradientTo="to-orange-600"
+            />
 
-          <div className="bg-white overflow-hidden shadow rounded-lg">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <Users className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">Usuarios</dt>
-                    <dd className="text-lg font-semibold text-gray-900">{stats.totalUsers}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
+            <WeeklyStatsCard
+              title="Usuarios"
+              value={weeklyStats.currentWeek.users}
+              icon={<Users className="w-8 h-8" />}
+              trend={weeklyStats.trends.users.direction}
+              trendValue={weeklyStats.trends.users.value}
+              sparklineData={[2, 2, 3, 3, 3, 3, weeklyStats.currentWeek.users]}
+              gradientFrom="from-purple-500"
+              gradientTo="to-pink-600"
+            />
           </div>
-        </div>
+        ) : null}
 
         {/* Navegación por paneles */}
-        <div className="bg-white shadow rounded-lg mb-8">
+        <div className="bg-white/80 backdrop-blur-lg shadow-xl rounded-2xl mb-8 border border-white/20">
           <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+            <nav className="-mb-px flex space-x-8 px-6 overflow-x-auto" aria-label="Tabs" style={{ scrollbarWidth: 'thin' }}>
               <button
                 onClick={() => setActiveTab('inventory')}
                 className={`${
                   activeTab === 'inventory'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Control de Inventario
@@ -232,7 +214,7 @@ export function Dashboard() {
                   activeTab === 'products'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Gestión de Productos
@@ -244,7 +226,7 @@ export function Dashboard() {
                   activeTab === 'stock'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Ajuste de Stock
@@ -256,7 +238,7 @@ export function Dashboard() {
                   activeTab === 'sales'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <ShoppingCart className="w-5 h-5 mr-2" />
                 Órdenes y Transacciones
@@ -268,7 +250,7 @@ export function Dashboard() {
                   activeTab === 'users'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Users className="w-5 h-5 mr-2" />
                 Usuarios
@@ -280,29 +262,51 @@ export function Dashboard() {
                   activeTab === 'batches'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Mail className="w-5 h-5 mr-2" />
                 Lotes y Reportes
+              </button>
+
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`${
+                  activeTab === 'settings'
+                    ? 'border-yellow-500 text-yellow-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+              >
+                <Settings className="w-5 h-5 mr-2" />
+                Configuración
               </button>
             </nav>
           </div>
         </div>
 
         {/* Contenido de los paneles */}
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white/80 backdrop-blur-lg shadow-xl rounded-2xl p-6 border border-white/20">
           {activeTab === 'inventory' && <InventoryTable />}
           {activeTab === 'products' && <ProductManagement />}
           {activeTab === 'stock' && <InventoryManager />}
-          {activeTab === 'sales' && <SalesHistory />}
+          {activeTab === 'sales' && <TransactionsPanel />}
           {activeTab === 'users' && <UserManagement />}
 
-          {activeTab === 'batches' && selectedProduct ? (
-            <div>
-              <BatchManager productId={selectedProduct.id} productName={selectedProduct.title} />
+          {activeTab === 'batches' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Búsqueda de Lotes por Producto</h3>
+                <BatchSearcher />
+              </div>
+              <hr className="my-6" />
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Lotes Próximos a Caducarse</h3>
+                <ExpiringBatchesAlert />
+              </div>
+              <hr className="my-6" />
               <EmailTasks />
             </div>
-          ) : null}
+          )}
+          {activeTab === 'settings' && <HardwareSettings />}
         </div>
       </div>
     </div>

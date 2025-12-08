@@ -1,21 +1,56 @@
+// src/lib/db.ts - ACTUALIZADO CON SLOTS, VENTAS Y ROLES
+
 export interface DBSchema {
   products: {
     id: number;
     title: string;
     price: number;
-    stock: number;
+    stock: number;              // Stock actual (cantidad física disponible)
+    initialStock?: number;      // ✨ Stock inicial/máximo (capacidad del slot - FIJO)
+    sales?: number;             // ✨ Unidades vendidas desde último reabastecimiento
     unit: string;
     image: string;
     rating: number;
-    createdAt: Date;
-    updatedAt: Date;
+    createdAt: string;
+    updatedAt: string;
+    // Gestión de Slots Físicos
+    slotPosition?: number;      // Posición física (1, 2, 3, ...)
+    bandDistance?: number;       // Distancia en cm para la banda
+    isSlotActive?: boolean;      // Si el slot está operativo
+    lastCalibration?: string;    // Última calibración del slot
   };
+  
+  users: {
+    id: number;
+    email: string;
+    passwordHash: string;
+    role: 'admin' | 'user' | 'customer'; // ✨ NUEVO: Agregado rol 'user'
+    name: string;
+    phone?: string;
+    isActive: boolean;
+    loyaltyPoints: number;
+    createdAt: string;
+    updatedAt: string;
+  };
+  
+  sessions: {
+    id: number;
+    userId: number;
+    token: string;
+    expiresAt: string;
+    createdAt: string;
+  };
+  
   orders: {
     id: number;
+    userId?: number;
     total: number;
     status: string;
-    createdAt: Date;
+    paymentMethod: 'cash' | 'card' | 'pending';
+    paymentStatus: 'pending' | 'completed' | 'failed';
+    createdAt: string;
   };
+  
   orderItems: {
     id: number;
     orderId: number;
@@ -23,15 +58,29 @@ export interface DBSchema {
     quantity: number;
     price: number;
   };
+  
   stockMovements: {
     id: number;
     productId: number;
     quantity: number;
-    type: 'in' | 'out';
+    type: 'in' | 'out' | 'damaged'; // ✨ NUEVO: Agregado 'damaged' para stock dañado
     note?: string;
-    createdAt: Date;
+    userId?: number; // ✨ NUEVO: Usuario que realizó el movimiento
+    createdAt: string;
   };
-  // AGREGADO:
+  
+  stockAdjustments: {
+    id: number;
+    productId: number;
+    adjustmentType: 'restock' | 'sale' | 'manual' | 'correction' | 'damaged';
+    quantityBefore: number;
+    quantityAfter: number;
+    difference: number;
+    note?: string;
+    userId: string;
+    timestamp: string;
+  };
+  
   product_batches: {
     id: number;
     productId: number;
@@ -39,12 +88,23 @@ export interface DBSchema {
     quantity: number;
     expiryDate: string;
   };
+  
+  access_logs: {
+    id: number;
+    userId?: number;
+    action: string;
+    resource: string;
+    ipAddress?: string;
+    userAgent?: string;
+    success: boolean;
+    createdAt: string;
+  };
 }
 
 class DB {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'storeDB';
-  private readonly version = 1;
+  private readonly version = 5; // ✨ Incrementar versión para nuevos roles y campos
 
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -64,18 +124,59 @@ class DB {
           const productStore = db.createObjectStore('products', { keyPath: 'id', autoIncrement: true });
           productStore.createIndex('title', 'title', { unique: false });
           productStore.createIndex('stock', 'stock', { unique: false });
+          productStore.createIndex('slotPosition', 'slotPosition', { unique: false });
+          productStore.createIndex('initialStock', 'initialStock', { unique: false });
+        } else {
+          const transaction = (event.target as IDBOpenDBRequest).transaction;
+          if (transaction) {
+            const productStore = transaction.objectStore('products');
+            if (!productStore.indexNames.contains('slotPosition')) {
+              productStore.createIndex('slotPosition', 'slotPosition', { unique: false });
+            }
+            if (!productStore.indexNames.contains('initialStock')) {
+              productStore.createIndex('initialStock', 'initialStock', { unique: false });
+            }
+          }
         }
+
+        // Usuarios
+        if (!db.objectStoreNames.contains('users')) {
+          const userStore = db.createObjectStore('users', { keyPath: 'id', autoIncrement: true });
+          userStore.createIndex('email', 'email', { unique: true });
+          userStore.createIndex('role', 'role', { unique: false });
+          userStore.createIndex('isActive', 'isActive', { unique: false });
+        }
+
+        // Sesiones
+        if (!db.objectStoreNames.contains('sessions')) {
+          const sessionStore = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
+          sessionStore.createIndex('token', 'token', { unique: true });
+          sessionStore.createIndex('userId', 'userId', { unique: false });
+          sessionStore.createIndex('expiresAt', 'expiresAt', { unique: false });
+        }
+
+        // Logs de acceso
+        if (!db.objectStoreNames.contains('access_logs')) {
+          const logStore = db.createObjectStore('access_logs', { keyPath: 'id', autoIncrement: true });
+          logStore.createIndex('userId', 'userId', { unique: false });
+          logStore.createIndex('action', 'action', { unique: false });
+          logStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // Órdenes
+        if (!db.objectStoreNames.contains('orders')) {
+          const orderStore = db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
+          orderStore.createIndex('userId', 'userId', { unique: false });
+          orderStore.createIndex('status', 'status', { unique: false });
+          orderStore.createIndex('paymentStatus', 'paymentStatus', { unique: false });
+          orderStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
         // Lotes de producto
         if (!db.objectStoreNames.contains('product_batches')) {
           const batchStore = db.createObjectStore('product_batches', { keyPath: 'id', autoIncrement: true });
           batchStore.createIndex('productId', 'productId', { unique: false });
           batchStore.createIndex('expiryDate', 'expiryDate', { unique: false });
-        }
-        // Órdenes
-        if (!db.objectStoreNames.contains('orders')) {
-          const orderStore = db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
-          orderStore.createIndex('status', 'status', { unique: false });
-          orderStore.createIndex('createdAt', 'createdAt', { unique: false });
         }
 
         // Items de orden
@@ -90,9 +191,56 @@ class DB {
           const stockMovementStore = db.createObjectStore('stockMovements', { keyPath: 'id', autoIncrement: true });
           stockMovementStore.createIndex('productId', 'productId', { unique: false });
           stockMovementStore.createIndex('type', 'type', { unique: false });
+          stockMovementStore.createIndex('userId', 'userId', { unique: false }); // ✨ NUEVO
           stockMovementStore.createIndex('createdAt', 'createdAt', { unique: false });
+        } else {
+          const transaction = (event.target as IDBOpenDBRequest).transaction;
+          if (transaction) {
+            const stockMovementStore = transaction.objectStore('stockMovements');
+            if (!stockMovementStore.indexNames.contains('userId')) {
+              stockMovementStore.createIndex('userId', 'userId', { unique: false });
+            }
+          }
+        }
+
+        // Ajustes de stock
+        if (!db.objectStoreNames.contains('stockAdjustments')) {
+          const adjustmentStore = db.createObjectStore('stockAdjustments', { keyPath: 'id', autoIncrement: true });
+          adjustmentStore.createIndex('productId', 'productId', { unique: false });
+          adjustmentStore.createIndex('adjustmentType', 'adjustmentType', { unique: false });
+          adjustmentStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
+    });
+  }
+
+  async getByIndex<T extends keyof DBSchema>(
+    storeName: T,
+    indexName: string,
+    value: any
+  ): Promise<DBSchema[T] | undefined> {
+    return this.transaction(storeName, 'readonly', async (store) => {
+      return new Promise((resolve, reject) => {
+        const index = store.index(indexName);
+        const request = index.get(value);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+
+  async getAllByIndex<T extends keyof DBSchema>(
+    storeName: T,
+    indexName: string,
+    value: any
+  ): Promise<DBSchema[T][]> {
+    return this.transaction(storeName, 'readonly', async (store) => {
+      return new Promise((resolve, reject) => {
+        const index = store.index(indexName);
+        const request = index.getAll(value);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
     });
   }
 

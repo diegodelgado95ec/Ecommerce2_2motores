@@ -1,3 +1,5 @@
+// src/components/Cart.tsx - VERSIÓN CORREGIDA
+
 import React from 'react';
 import { X, Plus, Minus, ShoppingCart } from 'lucide-react';
 import { useCart } from '../context/CartContext';
@@ -91,19 +93,32 @@ export function Cart() {
             )}
           </div>
 
-          <div className="border-t p-4">
-            <div className="flex justify-between mb-4">
+            <div className="border-t p-4">
+              <div className="flex justify-between mb-4">
               <span className="font-semibold">Total:</span>
               <span className="font-semibold">${total.toFixed(2)}</span>
             </div>
-            <button
-              onClick={checkout}
-              className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-50"
-              disabled={state.items.length === 0}
-            >
-              Proceder al Pago
-            </button>
+            
+            {/* ✅ DOS OPCIONES DE PAGO */}
+            <div className="space-y-2">
+              <button
+                onClick={() => checkout('cash')}
+                className="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-50"
+                disabled={state.items.length === 0}
+              >
+                💵 Pagar en Efectivo
+              </button>
+              
+              <button
+                onClick={() => checkout('card')}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-50"
+                disabled={state.items.length === 0}
+              >
+                💳 Pagar con Tarjeta
+              </button>
+            </div>
           </div>
+
         </div>
       </div>
     </div>
