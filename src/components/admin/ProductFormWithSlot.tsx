@@ -1,6 +1,6 @@
 // src/components/admin/ProductFormWithSlot.tsx
 import React, { useState, useEffect } from 'react';
-import { Plus, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, AlertTriangle, ChevronUp, ChevronDown, Upload, Image as ImageIcon } from 'lucide-react';
 import { slotService } from '../../services/SlotService';
 import { db } from '../../lib/db';
 import type { DBSchema } from '../../lib/db';
@@ -27,6 +27,7 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
   const [slotWarning, setSlotWarning] = useState<string | null>(null);
   const [currentProductInSlot, setCurrentProductInSlot] = useState<DBSchema['products'] | null>(null);
   const [availableSlots, setAvailableSlots] = useState<number[]>([]);
+  const [imagePreview, setImagePreview] = useState<string>(existingProduct?.image || '');
 
   useEffect(() => {
     loadAvailableSlots();
@@ -55,7 +56,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
       const validation = await slotService.validateSlotAvailability(slotPosition);
       
       if (!validation.available && validation.currentProduct) {
-        // Solo mostrar warning si no es el mismo producto que estamos editando
         if (!existingProduct || validation.currentProduct.id !== existingProduct.id) {
           setSlotWarning(`⚠️ Slot ocupado por: ${validation.currentProduct.title}`);
           setCurrentProductInSlot(validation.currentProduct);
@@ -72,6 +72,37 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
     }
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo de archivo
+    if (!file.type.startsWith('image/')) {
+      setError('Por favor selecciona un archivo de imagen válido');
+      return;
+    }
+
+    // Validar tamaño (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setError('La imagen no debe superar los 2MB');
+      return;
+    }
+
+    // Convertir a base64
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setFormData({ ...formData, image: base64String });
+      setImagePreview(base64String);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleImageUrlChange = (url: string) => {
+    setFormData({ ...formData, image: url });
+    setImagePreview(url);
+  };
+
   const adjustDistance = (increment: number) => {
     const current = parseFloat(formData.bandDistance) || 0;
     const newValue = Math.max(5, Math.min(200, current + increment));
@@ -84,7 +115,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
     setSuccess('');
 
     try {
-      // Validaciones básicas
       const productData: Omit<DBSchema['products'], 'id'> = {
         title: formData.title.trim(),
         price: parseFloat(formData.price),
@@ -101,7 +131,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
         return;
       }
 
-      // Validar y agregar datos de slot si están presentes
       if (formData.slotPosition) {
         const slotPosition = parseInt(formData.slotPosition);
         const bandDistance = parseFloat(formData.bandDistance);
@@ -116,7 +145,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
           return;
         }
 
-        // Si hay warning, confirmar con el usuario
         if (slotWarning && currentProductInSlot) {
           const confirmed = window.confirm(
             `${slotWarning}\n\n¿Seguro desea reasignar este slot? El producto "${currentProductInSlot.title}" perderá su asignación.`
@@ -135,7 +163,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
         });
       }
 
-      // Guardar producto
       let productId: number;
       if (existingProduct) {
         await db.put('products', { ...productData, id: existingProduct.id });
@@ -146,7 +173,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
         setSuccess(`Producto "${productData.title}" agregado correctamente`);
       }
 
-      // Asignar slot usando el servicio
       if (formData.slotPosition && formData.bandDistance) {
         await slotService.assignProductToSlot({
           productId,
@@ -155,7 +181,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
         });
       }
 
-      // Limpiar formulario
       if (!existingProduct) {
         setFormData({
           title: '',
@@ -167,6 +192,7 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
           slotPosition: '',
           bandDistance: ''
         });
+        setImagePreview('');
       }
 
       if (onSuccess) onSuccess();
@@ -191,7 +217,6 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
         </div>
       )}
 
-      {/* Campos básicos del producto */}
       <div className="grid grid-cols-6 gap-6">
         <div className="col-span-6">
           <label className="block text-sm font-medium text-gray-700">Nombre del Producto</label>
@@ -238,6 +263,59 @@ export function ProductFormWithSlot({ onSuccess, existingProduct }: ProductFormW
             <option value="ml">Mililitro</option>
             <option value="unidad">Unidad</option>
           </select>
+        </div>
+
+        {/* IMAGEN DEL PRODUCTO */}
+        <div className="col-span-6 border-t pt-6">
+          <h4 className="text-md font-medium text-gray-900 mb-4">🖼️ Imagen del Producto</h4>
+          
+          <div className="grid grid-cols-6 gap-6">
+            {/* URL de Imagen */}
+            <div className="col-span-6 sm:col-span-4">
+              <label className="block text-sm font-medium text-gray-700">URL de Imagen</label>
+              <input
+                type="url"
+                value={formData.image}
+                onChange={(e) => handleImageUrlChange(e.target.value)}
+                placeholder="https://ejemplo.com/imagen.jpg"
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 sm:text-sm"
+              />
+            </div>
+
+            {/* Subir Imagen */}
+            <div className="col-span-6 sm:col-span-2">
+              <label className="block text-sm font-medium text-gray-700">O Subir Imagen</label>
+              <label className="mt-1 flex items-center justify-center w-full border-2 border-gray-300 border-dashed rounded-md py-2 px-3 cursor-pointer hover:border-yellow-400 transition-colors">
+                <Upload className="w-5 h-5 mr-2 text-gray-400" />
+                <span className="text-sm text-gray-600">Seleccionar archivo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+              <p className="mt-1 text-xs text-gray-500">Max 2MB</p>
+            </div>
+
+            {/* Preview de Imagen */}
+            {imagePreview && (
+              <div className="col-span-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Vista Previa</label>
+                <div className="relative w-32 h-32 border-2 border-gray-200 rounded-lg overflow-hidden">
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                    onError={() => {
+                      setImagePreview('');
+                      setError('Error al cargar la imagen. Verifica la URL.');
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* SECCIÓN DE SLOT */}
