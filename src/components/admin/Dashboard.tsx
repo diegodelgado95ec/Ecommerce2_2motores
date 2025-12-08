@@ -4,7 +4,7 @@ import { UserManagement } from './UserManagement';
 import { InventoryTable } from './InventoryTable';
 import { InventoryManager } from './InventoryManager';
 import { ProductManagement } from './ProductManagement';
-import { SalesHistory } from './SalesHistory';
+import { TransactionsPanel } from './TransactionsPanel'; // ✨ NUEVO
 import { WeeklyStatsCard } from './WeeklyStatsCard';
 import { weeklyStatsService } from '../../services/WeeklyStatsService';
 import { getAllProducts } from '../../lib/inventory';
@@ -104,10 +104,11 @@ export function Dashboard() {
             <div className="flex items-center space-x-3">
               <button
                 onClick={handleSerialConnect}
-                className={`flex items-center px-4 py-2 rounded-lg transition-all duration-300 ${isSerialConnected
+                className={`flex items-center px-4 py-2 rounded-lg transition-all duration-300 ${
+                  isSerialConnected
                     ? 'bg-green-100 text-green-800 hover:bg-green-200 shadow-lg'
                     : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900 shadow-lg hover:shadow-xl'
-                  }`}
+                }`}
               >
                 <Usb className="w-5 h-5 mr-2" />
                 {isSerialConnected ? 'ESP32 Conectado' : 'Conectar ESP32'}
@@ -201,7 +202,7 @@ export function Dashboard() {
                   activeTab === 'inventory'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Control de Inventario
@@ -213,7 +214,7 @@ export function Dashboard() {
                   activeTab === 'products'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Gestión de Productos
@@ -225,7 +226,7 @@ export function Dashboard() {
                   activeTab === 'stock'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Package className="w-5 h-5 mr-2" />
                 Ajuste de Stock
@@ -237,7 +238,7 @@ export function Dashboard() {
                   activeTab === 'sales'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <ShoppingCart className="w-5 h-5 mr-2" />
                 Órdenes y Transacciones
@@ -249,7 +250,7 @@ export function Dashboard() {
                   activeTab === 'users'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Users className="w-5 h-5 mr-2" />
                 Usuarios
@@ -261,7 +262,7 @@ export function Dashboard() {
                   activeTab === 'batches'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Mail className="w-5 h-5 mr-2" />
                 Lotes y Reportes
@@ -273,7 +274,7 @@ export function Dashboard() {
                   activeTab === 'settings'
                     ? 'border-yellow-500 text-yellow-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center flex-shrink-0 transition-colors`}
               >
                 <Settings className="w-5 h-5 mr-2" />
                 Configuración
@@ -287,7 +288,7 @@ export function Dashboard() {
           {activeTab === 'inventory' && <InventoryTable />}
           {activeTab === 'products' && <ProductManagement />}
           {activeTab === 'stock' && <InventoryManager />}
-          {activeTab === 'sales' && <SalesHistory />}
+          {activeTab === 'sales' && <TransactionsPanel />}
           {activeTab === 'users' && <UserManagement />}
 
           {activeTab === 'batches' && (
