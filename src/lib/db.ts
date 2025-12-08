@@ -1,4 +1,4 @@
-// src/lib/db.ts - ACTUALIZADO CON SLOTS Y VENTAS
+// src/lib/db.ts - ACTUALIZADO CON SLOTS, VENTAS Y ROLES
 
 export interface DBSchema {
   products: {
@@ -6,8 +6,8 @@ export interface DBSchema {
     title: string;
     price: number;
     stock: number;              // Stock actual (cantidad física disponible)
-    initialStock?: number;      // ✨ NUEVO: Stock inicial/máximo (capacidad del slot - FIJO)
-    sales?: number;             // ✨ NUEVO: Unidades vendidas desde último reabastecimiento
+    initialStock?: number;      // ✨ Stock inicial/máximo (capacidad del slot - FIJO)
+    sales?: number;             // ✨ Unidades vendidas desde último reabastecimiento
     unit: string;
     image: string;
     rating: number;
@@ -24,7 +24,7 @@ export interface DBSchema {
     id: number;
     email: string;
     passwordHash: string;
-    role: 'admin' | 'customer';
+    role: 'admin' | 'user' | 'customer'; // ✨ NUEVO: Agregado rol 'user'
     name: string;
     phone?: string;
     isActive: boolean;
@@ -63,15 +63,16 @@ export interface DBSchema {
     id: number;
     productId: number;
     quantity: number;
-    type: 'in' | 'out';
+    type: 'in' | 'out' | 'damaged'; // ✨ NUEVO: Agregado 'damaged' para stock dañado
     note?: string;
+    userId?: number; // ✨ NUEVO: Usuario que realizó el movimiento
     createdAt: string;
   };
   
   stockAdjustments: {
     id: number;
     productId: number;
-    adjustmentType: 'restock' | 'sale' | 'manual' | 'correction';
+    adjustmentType: 'restock' | 'sale' | 'manual' | 'correction' | 'damaged';
     quantityBefore: number;
     quantityAfter: number;
     difference: number;
@@ -103,7 +104,7 @@ export interface DBSchema {
 class DB {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'storeDB';
-  private readonly version = 4; // ✨ Incrementar versión para initialStock y sales
+  private readonly version = 5; // ✨ Incrementar versión para nuevos roles y campos
 
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -124,9 +125,8 @@ class DB {
           productStore.createIndex('title', 'title', { unique: false });
           productStore.createIndex('stock', 'stock', { unique: false });
           productStore.createIndex('slotPosition', 'slotPosition', { unique: false });
-          productStore.createIndex('initialStock', 'initialStock', { unique: false }); // ✨ NUEVO
+          productStore.createIndex('initialStock', 'initialStock', { unique: false });
         } else {
-          // Si ya existe, intentar agregar los índices en actualización
           const transaction = (event.target as IDBOpenDBRequest).transaction;
           if (transaction) {
             const productStore = transaction.objectStore('products');
@@ -191,10 +191,19 @@ class DB {
           const stockMovementStore = db.createObjectStore('stockMovements', { keyPath: 'id', autoIncrement: true });
           stockMovementStore.createIndex('productId', 'productId', { unique: false });
           stockMovementStore.createIndex('type', 'type', { unique: false });
+          stockMovementStore.createIndex('userId', 'userId', { unique: false }); // ✨ NUEVO
           stockMovementStore.createIndex('createdAt', 'createdAt', { unique: false });
+        } else {
+          const transaction = (event.target as IDBOpenDBRequest).transaction;
+          if (transaction) {
+            const stockMovementStore = transaction.objectStore('stockMovements');
+            if (!stockMovementStore.indexNames.contains('userId')) {
+              stockMovementStore.createIndex('userId', 'userId', { unique: false });
+            }
+          }
         }
 
-        // ✨ NUEVO: Ajustes de stock (para historial detallado)
+        // Ajustes de stock
         if (!db.objectStoreNames.contains('stockAdjustments')) {
           const adjustmentStore = db.createObjectStore('stockAdjustments', { keyPath: 'id', autoIncrement: true });
           adjustmentStore.createIndex('productId', 'productId', { unique: false });
