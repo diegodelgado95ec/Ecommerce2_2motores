@@ -107,13 +107,24 @@ export function InventoryManager() {
           return;
         }
 
-        // Obtener stock actual antes del ajuste
+        // Obtener producto actual
         const product = await db.get('products', productId);
         if (!product) {
           setError('Producto no encontrado');
           return;
         }
         const stockAntes = product.stock;
+
+        // ✨ ESTABLECER initialStock si no existe (primera entrada)
+        if (!product.initialStock) {
+          const newStockAfterEntry = stockAntes + formData.quantity;
+          await db.put('products', {
+            ...product,
+            initialStock: newStockAfterEntry,
+            updatedAt: new Date().toISOString()
+          } as any);
+          console.log(`✓ Stock inicial establecido: ${newStockAfterEntry}`);
+        }
 
         // 1. Añadir lote (esto ya actualiza el stock del producto automáticamente)
         await addBatch({
@@ -205,18 +216,10 @@ export function InventoryManager() {
         }
       }
 
-      // ✨ NUEVO: Resetear ventas a 0 cuando se actualiza el stock
-      const product = await db.get('products', productId);
-      if (product) {
-        await db.put('products', {
-          ...product,
-          sales: 0,
-          updatedAt: new Date().toISOString()
-        });
-      }
+      // ❌ REMOVIDO: No resetear ventas manualmente - StockService lo hace automáticamente
 
       await loadProducts();
-      setSuccess('Stock y lote actualizados correctamente. Ventas reseteadas a 0.');
+      setSuccess(`Stock actualizado correctamente. ${formData.type === 'in' ? 'Ventas reseteadas a 0.' : ''}`);
       setFormData({
         productId: 0,
         quantity: 1,
@@ -414,7 +417,13 @@ export function InventoryManager() {
                   Producto
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Stock
+                  Stock Inicial
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Stock Actual
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Ventas
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Precio
@@ -422,26 +431,36 @@ export function InventoryManager() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {products.map((product) => (
-                <tr key={product.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <img src={product.image} alt="" className="h-8 w-8 rounded-full mr-3" />
-                      <span className="text-sm font-medium text-gray-900">{product.title}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      product.stock < 10 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                    }`}>
-                      {product.stock}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${product.price.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
+              {products.map((product) => {
+                const initialStock = product.initialStock || product.stock;
+                const sales = product.sales || 0;
+                return (
+                  <tr key={product.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <img src={product.image} alt="" className="h-8 w-8 rounded-full mr-3" />
+                        <span className="text-sm font-medium text-gray-900">{product.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {initialStock}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        product.stock < 10 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                      }`}>
+                        {product.stock}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {sales}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      ${product.price.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
