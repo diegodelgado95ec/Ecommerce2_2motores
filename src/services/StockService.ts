@@ -1,4 +1,4 @@
-// src/services/StockService.ts - Servicio de gestión de stock (SRP)
+// src/services/StockService.ts - Servicio de gestión de stock con initialStock y sales
 
 import { db } from '../lib/db';
 import logger from '../lib/logger';
@@ -8,12 +8,11 @@ type Product = DBSchema['products'];
 type StockMovement = DBSchema['stockMovements'];
 
 /**
- * ✅ OPTIMIZACIÓN #8: Separación de responsabilidades (SRP)
- * 
  * StockService se encarga EXCLUSIVAMENTE de:
  * - Validar disponibilidad de stock
  * - Actualizar cantidades de stock
  * - Registrar movimientos de stock
+ * - Gestionar initialStock (fijo) y sales (contador)
  */
 export class StockService {
   /**
@@ -52,7 +51,7 @@ export class StockService {
   }
 
   /**
-   * Actualiza el stock de un producto y registra el movimiento
+   * ✨ NUEVO: Actualiza el stock de un producto manejando initialStock y sales
    */
   async updateProductStock(
     product: Product,
@@ -60,18 +59,33 @@ export class StockService {
     type: 'in' | 'out',
     note: string
   ): Promise<number> {
-    const newStock = type === 'in' 
-      ? product.stock + quantity 
-      : product.stock - quantity;
+    let newStock: number;
+    let newSales: number = product.sales || 0;
     
-    if (newStock < 0) {
-      throw new Error(`Stock no puede ser negativo para ${product.title}`);
+    if (type === 'out') {
+      // ❌ VENTA: Reduce stock actual, incrementa contador de ventas
+      newStock = product.stock - quantity;
+      newSales = newSales + quantity;
+      
+      if (newStock < 0) {
+        throw new Error(`Stock no puede ser negativo para ${product.title}`);
+      }
+    } else {
+      // ✅ REABASTECIMIENTO: Incrementa stock actual, RESETEA ventas a 0
+      newStock = product.stock + quantity;
+      newSales = 0; // ✨ RESETEAR ventas en reabastecimiento
+      
+      // ✨ Si initialStock no existe, establecerlo al nuevo stock
+      if (!product.initialStock) {
+        product.initialStock = newStock;
+      }
     }
 
     // Actualizar producto
     await db.put('products', {
       ...product,
       stock: newStock,
+      sales: newSales,
       updatedAt: new Date().toISOString()
     } as any);
 
@@ -85,7 +99,7 @@ export class StockService {
     } as any);
 
     logger.log(
-      `[StockService]     ✓ Stock actualizado: ${product.stock} → ${newStock}`
+      `[StockService]     ✓ Stock actualizado: ${product.stock} → ${newStock} | Ventas: ${product.sales || 0} → ${newSales}`
     );
     
     return newStock;
@@ -132,15 +146,53 @@ export class StockService {
     logger.warn(`[StockService] ⚠️ Revirtiendo stock para orden #${orderId}`);
     
     for (const { item, product } of itemsWithProducts) {
-      await this.updateProductStock(
-        product,
-        item.quantity,
-        'in',
-        `Reversión orden #${orderId}`
-      );
+      // Al revertir, NO resetear ventas - solo devolver stock
+      const newStock = product.stock + item.quantity;
+      const newSales = Math.max(0, (product.sales || 0) - item.quantity);
+      
+      await db.put('products', {
+        ...product,
+        stock: newStock,
+        sales: newSales,
+        updatedAt: new Date().toISOString()
+      } as any);
+      
+      await db.add('stockMovements', {
+        productId: product.id!,
+        quantity: item.quantity,
+        type: 'in',
+        note: `Reversión orden #${orderId}`,
+        createdAt: new Date().toISOString()
+      } as any);
     }
     
     logger.log('[StockService] ✓ Stock revertido exitosamente');
+  }
+
+  /**
+   * ✨ NUEVO: Establece el initialStock para un producto
+   */
+  async setInitialStock(productId: number, initialStock: number): Promise<void> {
+    const product = await db.get('products', productId);
+    if (!product) {
+      throw new Error(`Producto ID ${productId} no encontrado`);
+    }
+
+    await db.put('products', {
+      ...product,
+      initialStock,
+      updatedAt: new Date().toISOString()
+    } as any);
+
+    logger.log(`[StockService] ✓ Stock inicial establecido: ${product.title} → ${initialStock}`);
+  }
+
+  /**
+   * ✨ NUEVO: Calcula la diferencia de stock (stock actual - initialStock)
+   */
+  getStockDifference(product: Product): number {
+    const initial = product.initialStock || product.stock;
+    return product.stock - initial;
   }
 }
 
