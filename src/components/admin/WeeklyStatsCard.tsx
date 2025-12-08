@@ -8,7 +8,7 @@ interface WeeklyStatsCardProps {
   icon: React.ReactNode;
   trend: 'up' | 'down' | 'neutral';
   trendValue: string;
-  sparklineData: number[];
+  sparklineData?: number[]; // Opcional, ya no se usa
   gradientFrom: string;
   gradientTo: string;
 }
@@ -19,22 +19,9 @@ export function WeeklyStatsCard({
   icon,
   trend,
   trendValue,
-  sparklineData,
   gradientFrom,
   gradientTo
 }: WeeklyStatsCardProps) {
-  // Normalizar datos del sparkline para el SVG
-  const max = Math.max(...sparklineData, 1);
-  const min = Math.min(...sparklineData, 0);
-  const range = max - min || 1;
-  const height = 40;
-  const width = 100;
-  const points = sparklineData.map((value, index) => {
-    const x = (index / (sparklineData.length - 1)) * width;
-    const y = height - ((value - min) / range) * height;
-    return `${x},${y}`;
-  }).join(' ');
-
   const getTrendIcon = () => {
     switch (trend) {
       case 'up':
@@ -49,74 +36,57 @@ export function WeeklyStatsCard({
   const getTrendColor = () => {
     switch (trend) {
       case 'up':
-        return 'text-green-600 bg-green-50';
+        return 'text-green-600 bg-green-50 border-green-200';
       case 'down':
-        return 'text-red-600 bg-red-50';
+        return 'text-red-600 bg-red-50 border-red-200';
       default:
-        return 'text-gray-600 bg-gray-50';
+        return 'text-gray-600 bg-gray-50 border-gray-200';
     }
   };
 
   return (
     <div className="relative group">
       {/* Glassmorphism Card */}
-      <div className="relative overflow-hidden rounded-2xl bg-white/60 backdrop-blur-xl border border-white/20 shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-1">
+      <div className="relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/30 shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-1">
         {/* Gradient Background */}
         <div className={`absolute inset-0 bg-gradient-to-br ${gradientFrom} ${gradientTo} opacity-5 group-hover:opacity-10 transition-opacity duration-300`} />
         
         <div className="relative p-6">
-          {/* Header con Icono */}
-          <div className="flex items-start justify-between mb-4">
-            <div className={`p-3 rounded-xl bg-gradient-to-br ${gradientFrom} ${gradientTo} shadow-lg`}>
+          {/* Header con Icono y Trend */}
+          <div className="flex items-start justify-between mb-6">
+            {/* Icono Grande con Gradiente */}
+            <div className={`p-4 rounded-2xl bg-gradient-to-br ${gradientFrom} ${gradientTo} shadow-lg transform group-hover:scale-110 transition-transform duration-300`}>
               <div className="text-white">
                 {icon}
               </div>
             </div>
             
             {/* Trend Badge */}
-            <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium ${getTrendColor()}`}>
+            <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${getTrendColor()} shadow-sm`}>
               {getTrendIcon()}
               <span>{trendValue}</span>
             </div>
           </div>
 
           {/* Title */}
-          <h3 className="text-sm font-medium text-gray-600 mb-2">{title}</h3>
+          <h3 className="text-sm font-medium text-gray-600 mb-2 uppercase tracking-wide">
+            {title}
+          </h3>
           
-          {/* Value */}
-          <div className="text-3xl font-bold text-gray-900 mb-3">
+          {/* Value - Más Grande y Prominente */}
+          <div className="text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent mb-3">
             {value}
           </div>
 
-          {/* Sparkline */}
-          <div className="mt-4">
-            <svg width="100%" height="40" className="overflow-visible">
-              <polyline
-                points={points}
-                fill="none"
-                stroke="url(#gradient)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="drop-shadow-sm"
-              />
-              <defs>
-                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" className={gradientFrom.replace('from-', 'stop-')} />
-                  <stop offset="100%" className={gradientTo.replace('to-', 'stop-')} />
-                </linearGradient>
-              </defs>
-            </svg>
-          </div>
-
           {/* Comparison Text */}
-          <p className="mt-2 text-xs text-gray-500">
-            Comparado con semana anterior
+          <p className="text-xs text-gray-500 flex items-center">
+            <span className="inline-block w-2 h-2 rounded-full bg-gray-400 mr-2"></span>
+            vs. semana anterior
           </p>
         </div>
 
         {/* Shine Effect */}
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
       </div>
     </div>
   );
