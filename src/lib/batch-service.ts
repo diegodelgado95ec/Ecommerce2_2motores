@@ -1,4 +1,4 @@
-// src/lib/batch-service.ts - VERSIÓN OPTIMIZADA
+// src/lib/batch-service.ts - CON ACTUALIZACIÓN DE STOCK DE PRODUCTO
 
 import { db } from './db';
 
@@ -11,19 +11,33 @@ export interface Batch {
   expiryDate: string;     // Fecha en formato 'YYYY-MM-DD'
 }
 
-// Añadir un nuevo lote a la tabla product_batches
+/**
+ * ✨ ACTUALIZADO: Añadir un nuevo lote Y actualizar stock del producto
+ */
 export async function addBatch(batch: Batch): Promise<number> {
   // Si existe lote+producto, suma cantidad, si no, crea lote
   const existentes = await getBatchesByProduct(batch.productId);
   const coincide = existentes.find(
     b => b.batchCode === batch.batchCode
   );
+  
+  let batchId: number;
+  
   if (coincide) {
     // Suma cantidad al lote
-    return updateBatchQuantity(coincide.id!, coincide.quantity + batch.quantity);
+    const nuevaCantidad = coincide.quantity + batch.quantity;
+    batchId = await updateBatchQuantity(coincide.id!, nuevaCantidad);
+    console.log(`[BatchService] ✓ Lote existente actualizado: ${batch.batchCode} (+${batch.quantity})`);
+  } else {
+    // Crea lote nuevo
+    batchId = await db.add('product_batches', batch);
+    console.log(`[BatchService] ✓ Nuevo lote creado: ${batch.batchCode} (${batch.quantity} unidades)`);
   }
-  // Crea lote nuevo
-  return db.add('product_batches', batch);
+
+  // ✨ ACTUALIZAR STOCK DEL PRODUCTO
+  await syncProductStockWithBatches(batch.productId);
+  
+  return batchId;
 }
 
 // Obtener todos los lotes de un producto (con stock)
@@ -32,13 +46,46 @@ export async function getBatchesByProduct(productId: number): Promise<Batch[]> {
   return allBatches.filter((b: Batch) => b.productId === productId);
 }
 
-// Actualiza la cantidad de un lote
+/**
+ * ✨ ACTUALIZADO: Actualiza la cantidad de un lote Y el stock del producto
+ */
 export async function updateBatchQuantity(batchId: number, newQuantity: number): Promise<number> {
   const batch = await db.get('product_batches', batchId);
   if (!batch) throw new Error('Lote no encontrado');
+  
   batch.quantity = newQuantity;
   await db.put('product_batches', batch);
+  
+  // ✨ ACTUALIZAR STOCK DEL PRODUCTO
+  await syncProductStockWithBatches(batch.productId);
+  
   return batch.id!;
+}
+
+/**
+ * ✨ NUEVO: Sincroniza el stock del producto con la suma de todos sus lotes
+ */
+async function syncProductStockWithBatches(productId: number): Promise<void> {
+  // Obtener todos los lotes del producto
+  const batches = await getBatchesByProduct(productId);
+  
+  // Sumar cantidades de todos los lotes
+  const totalStock = batches.reduce((sum, batch) => sum + batch.quantity, 0);
+  
+  // Actualizar stock del producto
+  const product = await db.get('products', productId);
+  if (!product) {
+    console.error(`[BatchService] ❌ Producto ${productId} no encontrado`);
+    return;
+  }
+  
+  const stockAnterior = product.stock;
+  product.stock = totalStock;
+  product.updatedAt = new Date().toISOString();
+  
+  await db.put('products', product);
+  
+  console.log(`[BatchService] ✓ Stock del producto ${productId} actualizado: ${stockAnterior} → ${totalStock}`);
 }
 
 // Para consulta de lotes por vencer (días antes)
@@ -124,5 +171,8 @@ export async function consumeBatchesFIFO(
     }
   });
 
-  console.log(`[BatchService] ✅ ${quantityToConsume} unidades consumidas exitosamente usando FIFO`);
+  // ✨ ACTUALIZAR STOCK DEL PRODUCTO
+  await syncProductStockWithBatches(productId);
+
+  console.log(`[BatchService] ✓ ${quantityToConsume} unidades consumidas exitosamente usando FIFO`);
 }
