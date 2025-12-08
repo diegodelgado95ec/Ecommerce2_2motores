@@ -1,53 +1,75 @@
-// src/components/admin/InventoryTable.tsx - VERSIÓN CORREGIDA
-
+// src/components/admin/InventoryTable.tsx - VERSIÓN FUSIONADA
 import React, { useState, useEffect } from 'react';
 import { getAllProducts, db } from '../../lib/inventory';
-import { Pencil, Save, X } from 'lucide-react';
+import { Pencil, Save, X, Settings } from 'lucide-react';
 import type { Product } from '../../lib/inventory';
+
+// Función helper para registrar ajuste de stock (compatible con ambos proyectos)
+const registerStockAdjustment = async (
+  productId: number,
+  newStock: number,
+  note?: string,
+  source: 'manual' | 'sale' | 'adjustment' = 'manual'
+) => {
+  try {
+    const product = await db.get('products', productId);
+    if (!product) throw new Error('Producto no encontrado');
+
+    const previousStock = product.stock;
+    const difference = newStock - previousStock;
+
+    // Actualizar producto
+    await db.put('products', {
+      ...product,
+      stock: newStock,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Registrar movimiento de stock
+    await db.add('stockMovements', {
+      productId,
+      quantity: difference,
+      type: difference > 0 ? 'in' : 'out',
+      note: note || `Ajuste ${source}`,
+      createdAt: new Date().toISOString()
+    });
+
+    console.log(`✓ Stock ajustado: ${previousStock} → ${newStock} (${difference > 0 ? '+' : ''}${difference})`);
+  } catch (error) {
+    console.error('Error en registerStockAdjustment:', error);
+    throw error;
+  }
+};
 
 export function InventoryTable() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [orderItems, setOrderItems] = useState<any[]>([]); // ✅ AGREGAR
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<Partial<Product>>({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Estados para modal de ajuste
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
+  const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
+  const [adjustQuantity, setAdjustQuantity] = useState('');
+  const [adjustNote, setAdjustNote] = useState('');
+
   useEffect(() => {
     loadProducts();
-    loadOrderItems(); // ✅ AGREGAR
     checkAdminStatus();
   }, []);
 
-  const checkAdminStatus = async () => {
-    try {
-      const users = await db.getAll('users');
-      // Aquí deberías verificar el usuario actual desde authService
-      // Por ahora asumimos que hay forma de saber si es admin
-      const currentUserEmail = localStorage.getItem('currentUserEmail');
-      const user = users.find((u: any) => u.email === currentUserEmail);
-      setIsAdmin(user?.role === 'admin');
-    } catch (error) {
-      console.error('Error checking admin status:', error);
-      setIsAdmin(false);
-    }
+  const checkAdminStatus = () => {
+    const users = JSON.parse(localStorage.getItem('app_users') || '[]');
+    const currentUser = localStorage.getItem('currentUser');
+    const user = users.find((u: any) => u.username === currentUser);
+    setIsAdmin(user?.isAdmin || false);
   };
 
   const loadProducts = async () => {
     const data = await getAllProducts();
     setProducts(data);
-  };
-
-  // ✅ NUEVO: Cargar items de órdenes para calcular ventas reales
-  const loadOrderItems = async () => {
-    try {
-      const items = await db.getAll('orderItems');
-      setOrderItems(items);
-    } catch (error) {
-      console.error('Error loading order items:', error);
-      setOrderItems([]);
-    }
   };
 
   const handleEdit = (product: Product) => {
@@ -62,7 +84,7 @@ export function InventoryTable() {
       const updatedProduct = {
         ...editForm,
         id: editingId,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
         price: Number(editForm.price),
         stock: Number(editForm.stock),
         rating: Number(editForm.rating)
@@ -97,38 +119,48 @@ export function InventoryTable() {
     }));
   };
 
-  // ✅ FUNCIÓN: Calcular estadísticas por producto
-  const getProductStats = (product: Product) => {
-    // Ventas reales desde orderItems
-    const productOrderItems = orderItems.filter(item => item.productId === product.id);
-    const unitsSold = productOrderItems.reduce((sum, item) => sum + Math.abs(item.quantity), 0);
-    const revenueFromSales = productOrderItems.reduce((sum, item) => {
-      return sum + (Math.abs(item.quantity) * item.price);
-    }, 0);
+  const handleAdjustStock = async () => {
+    if (!adjustingProduct || !adjustingProduct.id) return;
 
-    // Valor del stock actual
-    const stockValue = product.stock * product.price;
+    try {
+      const adjustment = parseInt(adjustQuantity);
 
-    return {
-      unitsSold,           // ✅ Unidades vendidas (desde órdenes)
-      revenueFromSales,    // ✅ Ingresos por ventas
-      stockValue           // ✅ Valor del inventario actual
-    };
+      if (isNaN(adjustment)) {
+        setError('Por favor ingresa un número válido');
+        return;
+      }
+
+      const newStock = adjustingProduct.stock + adjustment;
+
+      if (newStock < 0) {
+        setError('El stock no puede ser negativo');
+        return;
+      }
+
+      await registerStockAdjustment(
+        adjustingProduct.id,
+        newStock,
+        adjustNote || undefined,
+        'manual'
+      );
+
+      setSuccess(`Stock ajustado correctamente: ${adjustment > 0 ? '+' : ''}${adjustment} unidades`);
+      setAdjustModalOpen(false);
+      setAdjustingProduct(null);
+      setAdjustQuantity('');
+      setAdjustNote('');
+      await loadProducts();
+
+      setTimeout(() => {
+        setSuccess('');
+      }, 3000);
+    } catch (error: any) {
+      setError(error.message || 'Error al ajustar stock');
+      setTimeout(() => {
+        setError('');
+      }, 3000);
+    }
   };
-
-  // ✅ CALCULAR TOTALES
-  const totals = products.reduce(
-    (acc, product) => {
-      const stats = getProductStats(product);
-      return {
-        stock: acc.stock + product.stock,
-        unitsSold: acc.unitsSold + stats.unitsSold,
-        revenue: acc.revenue + stats.revenueFromSales,
-        stockValue: acc.stockValue + stats.stockValue
-      };
-    },
-    { stock: 0, unitsSold: 0, revenue: 0, stockValue: 0 }
-  );
 
   return (
     <div className="flex flex-col">
@@ -142,30 +174,35 @@ export function InventoryTable() {
           {success}
         </div>
       )}
-      
       <div className="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
         <div className="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
           <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    #
+                  </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Producto
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Stock Inicial
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Stock Actual
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Unidades Vendidas
+                    Diferencia
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Ventas
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Precio Unitario
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Valor del Stock
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ingresos por Ventas
+                    Ingresos Totales
                   </th>
                   {isAdmin && (
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -175,12 +212,23 @@ export function InventoryTable() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {products.map((product) => {
-                  const stats = getProductStats(product);
+                {products.map((product, index) => {
+                  const totalSales = product.sales || 0;
+                  const totalRevenue = totalSales * product.price;
                   const isEditing = editingId === product.id;
-                  
+
+                  // Calcular stock inicial y diferencia
+                  const initialStock = (product as any).initialStock ?? product.stock;
+                  const difference = product.stock - initialStock;
+
                   return (
-                    <tr key={product.id} className="hover:bg-gray-50">
+                    <tr key={product.id}>
+                      {/* Columna # */}
+                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {index + 1}
+                      </td>
+
+                      {/* Columna Producto */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           {isEditing ? (
@@ -189,14 +237,14 @@ export function InventoryTable() {
                                 type="text"
                                 value={editForm.title || ''}
                                 onChange={(e) => handleChange('title', e.target.value)}
-                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
                                 placeholder="Título del producto"
                               />
                               <input
                                 type="url"
                                 value={editForm.image || ''}
                                 onChange={(e) => handleChange('image', e.target.value)}
-                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
                                 placeholder="URL de la imagen"
                               />
                             </div>
@@ -212,55 +260,63 @@ export function InventoryTable() {
                           )}
                         </div>
                       </td>
-                      
+
+                      {/* Columna Stock Inicial */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {initialStock}
+                      </td>
+
+                      {/* Columna Stock Actual */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         {isEditing ? (
                           <input
                             type="number"
                             value={editForm.stock || 0}
                             onChange={(e) => handleChange('stock', parseInt(e.target.value))}
-                            className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                            className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
                           />
                         ) : (
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            product.stock > 50 ? 'bg-green-100 text-green-800' :
-                            product.stock > 20 ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
+                            product.stock < 10 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
                           }`}>
                             {product.stock}
                           </span>
                         )}
                       </td>
-                      
-                      {/* ✅ Unidades Vendidas (desde órdenes reales) */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {stats.unitsSold}
+
+                      {/* Columna Diferencia */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${
+                          difference < 0
+                            ? 'bg-red-100 text-red-800'
+                            : difference === 0
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {difference > 0 ? `+${difference}` : difference}
+                        </span>
                       </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+
+                      {/* Columna Ventas */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {totalSales}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {isEditing ? (
                           <input
                             type="number"
                             step="0.01"
                             value={editForm.price || 0}
                             onChange={(e) => handleChange('price', parseFloat(e.target.value))}
-                            className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                            className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
                           />
                         ) : (
                           `$${product.price.toFixed(2)}`
                         )}
                       </td>
-                      
-                      {/* ✅ Valor del Stock (stock actual × precio) */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        ${stats.stockValue.toFixed(2)}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${totalRevenue.toFixed(2)}
                       </td>
-                      
-                      {/* ✅ Ingresos por Ventas (desde órdenes reales) */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                        ${stats.revenueFromSales.toFixed(2)}
-                      </td>
-                      
                       {isAdmin && (
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           {isEditing ? (
@@ -268,26 +324,36 @@ export function InventoryTable() {
                               <button
                                 onClick={handleSave}
                                 className="text-green-600 hover:text-green-900"
-                                title="Guardar cambios"
                               >
                                 <Save className="h-5 w-5" />
                               </button>
                               <button
                                 onClick={handleCancel}
                                 className="text-red-600 hover:text-red-900"
-                                title="Cancelar"
                               >
                                 <X className="h-5 w-5" />
                               </button>
                             </div>
                           ) : (
-                            <button
-                              onClick={() => handleEdit(product)}
-                              className="text-indigo-600 hover:text-indigo-900"
-                              title="Editar producto"
-                            >
-                              <Pencil className="h-5 w-5" />
-                            </button>
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleEdit(product)}
+                                className="text-yellow-600 hover:text-yellow-900"
+                                title="Editar producto"
+                              >
+                                <Pencil className="h-5 w-5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setAdjustingProduct(product);
+                                  setAdjustModalOpen(true);
+                                }}
+                                className="text-blue-600 hover:text-blue-900"
+                                title="Ajustar stock"
+                              >
+                                <Settings className="h-5 w-5" />
+                              </button>
+                            </div>
                           )}
                         </td>
                       )}
@@ -295,27 +361,28 @@ export function InventoryTable() {
                   );
                 })}
               </tbody>
-              
-              {/* ✅ FILA DE TOTALES CORREGIDA */}
               <tfoot className="bg-gray-50">
-                <tr className="font-semibold">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    TOTALES
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {totals.stock}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {totals.unitsSold}
+                <tr>
+                  <td colSpan={2} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    Totales
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     -
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${totals.stockValue.toFixed(2)}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {products.reduce((sum, p) => sum + p.stock, 0)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                    ${totals.revenue.toFixed(2)}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    -
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {products.reduce((sum, p) => sum + (p.sales || 0), 0)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    -
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${products.reduce((sum, p) => sum + (p.sales || 0) * p.price, 0).toFixed(2)}
                   </td>
                   {isAdmin && <td></td>}
                 </tr>
@@ -325,23 +392,115 @@ export function InventoryTable() {
         </div>
       </div>
 
-      {/* ✅ NOTA EXPLICATIVA */}
-      <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <p className="text-sm text-blue-700">
-              <strong>Stock Actual:</strong> Productos disponibles en inventario • 
-              <strong> Valor del Stock:</strong> Valor monetario del inventario (stock × precio) • 
-              <strong> Ingresos por Ventas:</strong> Dinero generado por ventas realizadas
-            </p>
+      {/* Modal de Ajuste de Stock */}
+      {adjustModalOpen && adjustingProduct && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            {/* Header del Modal */}
+            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-lg">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Ajustar Stock</h3>
+                <button
+                  onClick={() => {
+                    setAdjustModalOpen(false);
+                    setAdjustingProduct(null);
+                    setAdjustQuantity('');
+                    setAdjustNote('');
+                  }}
+                  className="text-white hover:text-gray-200"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido del Modal */}
+            <div className="p-6 space-y-4">
+              {/* Información del Producto */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-900 mb-2">{adjustingProduct.title}</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-600">Stock Inicial:</span>
+                    <span className="ml-2 font-semibold text-gray-900">
+                      {(adjustingProduct as any).initialStock ?? adjustingProduct.stock}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Stock Actual:</span>
+                    <span className="ml-2 font-semibold text-gray-900">
+                      {adjustingProduct.stock}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Input de Cantidad de Ajuste */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Cantidad a Ajustar (usar + o -)
+                </label>
+                <input
+                  type="number"
+                  value={adjustQuantity}
+                  onChange={(e) => setAdjustQuantity(e.target.value)}
+                  placeholder="Ej: +10 o -5"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoFocus
+                />
+                {adjustQuantity && !isNaN(parseInt(adjustQuantity)) && (
+                  <div className="mt-2 text-sm">
+                    <span className="text-gray-600">Nuevo stock:</span>
+                    <span className={`ml-2 font-bold ${
+                      adjustingProduct.stock + parseInt(adjustQuantity) < 0
+                        ? 'text-red-600'
+                        : 'text-green-600'
+                    }`}>
+                      {adjustingProduct.stock + parseInt(adjustQuantity)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Input de Nota (Opcional) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nota (Opcional)
+                </label>
+                <textarea
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                  placeholder="Razón del ajuste..."
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Footer del Modal */}
+            <div className="bg-gray-50 px-6 py-4 rounded-b-lg flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setAdjustModalOpen(false);
+                  setAdjustingProduct(null);
+                  setAdjustQuantity('');
+                  setAdjustNote('');
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAdjustStock}
+                disabled={!adjustQuantity || isNaN(parseInt(adjustQuantity)) || parseInt(adjustQuantity) === 0}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Guardar Ajuste
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
