@@ -1,17 +1,19 @@
-// src/lib/db.ts - ACTUALIZADO CON SLOTS
+// src/lib/db.ts - ACTUALIZADO CON SLOTS Y VENTAS
 
 export interface DBSchema {
   products: {
     id: number;
     title: string;
     price: number;
-    stock: number;
+    stock: number;              // Stock actual (cantidad física disponible)
+    initialStock?: number;      // ✨ NUEVO: Stock inicial/máximo (capacidad del slot - FIJO)
+    sales?: number;             // ✨ NUEVO: Unidades vendidas desde último reabastecimiento
     unit: string;
     image: string;
     rating: number;
     createdAt: string;
     updatedAt: string;
-    // ✨ NUEVOS CAMPOS FASE 2: Gestión de Slots Físicos
+    // Gestión de Slots Físicos
     slotPosition?: number;      // Posición física (1, 2, 3, ...)
     bandDistance?: number;       // Distancia en cm para la banda
     isSlotActive?: boolean;      // Si el slot está operativo
@@ -66,6 +68,18 @@ export interface DBSchema {
     createdAt: string;
   };
   
+  stockAdjustments: {
+    id: number;
+    productId: number;
+    adjustmentType: 'restock' | 'sale' | 'manual' | 'correction';
+    quantityBefore: number;
+    quantityAfter: number;
+    difference: number;
+    note?: string;
+    userId: string;
+    timestamp: string;
+  };
+  
   product_batches: {
     id: number;
     productId: number;
@@ -89,7 +103,7 @@ export interface DBSchema {
 class DB {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'storeDB';
-  private readonly version = 3; // ✅ Incrementar versión para slots
+  private readonly version = 4; // ✨ Incrementar versión para initialStock y sales
 
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -109,14 +123,18 @@ class DB {
           const productStore = db.createObjectStore('products', { keyPath: 'id', autoIncrement: true });
           productStore.createIndex('title', 'title', { unique: false });
           productStore.createIndex('stock', 'stock', { unique: false });
-          productStore.createIndex('slotPosition', 'slotPosition', { unique: false }); // ✨ NUEVO índice
+          productStore.createIndex('slotPosition', 'slotPosition', { unique: false });
+          productStore.createIndex('initialStock', 'initialStock', { unique: false }); // ✨ NUEVO
         } else {
-          // Si ya existe, intentar agregar el índice en actualización
+          // Si ya existe, intentar agregar los índices en actualización
           const transaction = (event.target as IDBOpenDBRequest).transaction;
           if (transaction) {
             const productStore = transaction.objectStore('products');
             if (!productStore.indexNames.contains('slotPosition')) {
               productStore.createIndex('slotPosition', 'slotPosition', { unique: false });
+            }
+            if (!productStore.indexNames.contains('initialStock')) {
+              productStore.createIndex('initialStock', 'initialStock', { unique: false });
             }
           }
         }
@@ -174,6 +192,14 @@ class DB {
           stockMovementStore.createIndex('productId', 'productId', { unique: false });
           stockMovementStore.createIndex('type', 'type', { unique: false });
           stockMovementStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // ✨ NUEVO: Ajustes de stock (para historial detallado)
+        if (!db.objectStoreNames.contains('stockAdjustments')) {
+          const adjustmentStore = db.createObjectStore('stockAdjustments', { keyPath: 'id', autoIncrement: true });
+          adjustmentStore.createIndex('productId', 'productId', { unique: false });
+          adjustmentStore.createIndex('adjustmentType', 'adjustmentType', { unique: false });
+          adjustmentStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
     });
